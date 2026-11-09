@@ -10,6 +10,10 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
 
+import com.tungsten.fcl.setting.Profile;
+import com.tungsten.fcl.setting.Profiles;
+import com.tungsten.fclcore.game.Version;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -135,6 +139,37 @@ public class Bridge {
                     ctx.startActivity(li);
                     ok(id, "1");
                 }
+                break;
+            }
+
+            case "versions": {
+                // 直接读 FCL 的版本库，不读我们自己的下载目录
+                Profile p = Profiles.INSTANCE.getSelectedProfile();
+                JSONArray arr = new JSONArray();
+                if (p != null) {
+                    for (Version v : p.getRepository().getVersions()) {
+                        arr.put(v.getId());
+                    }
+                }
+                ok(id, arr.toString());
+                break;
+            }
+
+            case "launch": {
+                // 调 FCL 的启动器，直接进游戏，不打开它的任何界面
+                final String ver = a;
+                final Profile pf = Profiles.INSTANCE.getSelectedProfile();
+                if (pf == null || ver == null || ver.isEmpty()) {
+                    fail(id, "没有选中版本");
+                    break;
+                }
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        com.tungsten.fcl.ui.version.Versions.launch(ctx, pf, ver, null);
+                    }
+                });
+                ok(id, "1");
                 break;
             }
 
