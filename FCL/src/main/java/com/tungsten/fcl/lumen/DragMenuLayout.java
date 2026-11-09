@@ -1,7 +1,10 @@
 package com.tungsten.fcl.lumen;
 
 import android.content.Context;
+import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.ColorMatrixColorFilter;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -19,6 +22,11 @@ import androidx.constraintlayout.widget.ConstraintLayout;
  * 松手后回弹 —— 这就是「被手指拽出去再弹回来」的近似手感。
  */
 public class DragMenuLayout extends ConstraintLayout {
+
+    private final Paint glassFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glassEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF rect = new RectF();
+    private boolean glassInit = false;
 
     private final int slop;
     private int activeIndex = -1;
@@ -137,6 +145,30 @@ public class DragMenuLayout extends ConstraintLayout {
 
     // ---------------- 背景色相缓慢流转 ----------------
     private android.animation.ValueAnimator hueAnim;
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        // 子项背景会被 FCLMenuView 在代码里覆盖，所以玻璃底板由容器自己画
+        if (!glassInit) {
+            glassFill.setColor(0x1FFFFFFF);
+            glassEdge.setColor(0x55FFFFFF);
+            glassEdge.setStyle(Paint.Style.STROKE);
+            glassEdge.setStrokeWidth(getResources().getDisplayMetrics().density * 1.2f);
+            glassInit = true;
+        }
+        for (int i = 0; i < getChildCount(); i++) {
+            android.view.View c = getChildAt(i);
+            if (c.getVisibility() != VISIBLE) {
+                continue;
+            }
+            float pad = getResources().getDisplayMetrics().density * 4f;
+            rect.set(c.getLeft() - pad, c.getTop() - pad, c.getRight() + pad, c.getBottom() + pad);
+            float r = getResources().getDisplayMetrics().density * 16f;
+            canvas.drawRoundRect(rect, r, r, glassFill);
+            canvas.drawRoundRect(rect, r, r, glassEdge);
+        }
+        super.onDraw(canvas);
+    }
 
     @Override
     protected void onAttachedToWindow() {
