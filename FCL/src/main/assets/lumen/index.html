@@ -463,7 +463,7 @@ ul{ margin:0; padding:0; list-style:none; }
   position:absolute; left:14px; right:14px;
   bottom:calc(var(--sab) + 12px);
   height:62px; border-radius:24px;
-  display:grid; grid-template-columns:repeat(5,1fr);
+  display:grid; grid-template-columns:repeat(6,1fr);
   padding:6px;
   background:rgba(18,18,28,.62);
   border:1px solid rgba(255,255,255,.13);
@@ -750,6 +750,20 @@ input[type=range]::-webkit-slider-thumb:active{ transform:scale(1.15); }
       </div>
     </section>
 
+
+    <section class="page" data-page="files">
+      <div class="chips" id="fileCats">
+        <button class="chip on" data-cat="saves">存档</button>
+        <button class="chip" data-cat="mods">模组</button>
+        <button class="chip" data-cat="shaderpacks">光影</button>
+        <button class="chip" data-cat="resourcepacks">资源包</button>
+      </div>
+      <div id="fileNotice"></div>
+      <div class="sec-head"><h2>旧目录 · FCL</h2></div>
+      <div class="glass vlist" id="fileOld"><div class="empty"><p>读取中…</p></div></div>
+      <div class="sec-head"><h2>新目录 · Lumen</h2></div>
+      <div class="glass vlist" id="fileNew"><div class="empty"><p>读取中…</p></div></div>
+    </section>
     <!-- ================= 设置 ================= -->
     <section class="page" data-page="settings">
       <div class="glass vlist">
@@ -786,6 +800,10 @@ input[type=range]::-webkit-slider-thumb:active{ transform:scale(1.15); }
     <button class="tab" data-page="account">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"/></svg>
       账户
+    </button>
+    <button class="tab" data-page="files">
+      <svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l1.6 2h8.2a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+      文件
     </button>
     <button class="tab" data-page="settings">
       <svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h9M17 18h3"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="18" r="2"/></svg>
@@ -971,7 +989,9 @@ function go(name, then) {
   if (then) then();
 }
 
-tabs.forEach(t => t.addEventListener('click', () => go(t.dataset.page)));
+tabs.forEach(t => t.addEventListener('click', () => go(t.dataset.page, () => {
+  if (t.dataset.page === 'files') loadFiles();
+})));
 $$('[data-go]').forEach(el => el.addEventListener('click', e => {
   e.preventDefault();
   go(el.dataset.go);
@@ -1264,6 +1284,106 @@ $('#modList').addEventListener('click', e => {
   const row = e.target.closest('[data-open]');
   if (!row) return;
   call('open', row.dataset.open).catch(err => toast('无法打开：' + err.message));
+});
+
+
+/* ---------------- 文件管理 ---------------- */
+const OLD_ROOT = '/storage/emulated/0/FCL/.minecraft/';
+const NEW_ROOT = '/storage/emulated/0/Lumen/.minecraft/';
+let fileCat = 'saves';
+
+function fmtSize(n) {
+  if (!n) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+
+function renderFiles(box, items, isOld) {
+  if (!items.length) {
+    box.innerHTML = '<div class="empty"><p>空目录</p></div>';
+    return;
+  }
+  box.innerHTML = items.map((f, i) => `
+    <div class="vrow">
+      <span class="dot"></span>
+      <span class="col"><span class="nm">${esc(f.name)}</span>
+        <span class="meta">${f.dir ? '文件夹' : fmtSize(f.size)}</span></span>
+      ${isOld
+        ? `<button class="btn-sm" data-imp="${i}">导入</button>`
+        : `<button class="btn-sm warn" data-del="${i}">删除</button>`}
+    </div>`).join('');
+}
+
+let cacheOld = [], cacheNew = [];
+
+async function loadFiles() {
+  const oldBox = $('#fileOld'), newBox = $('#fileNew');
+  oldBox.innerHTML = '<div class="empty"><p>读取中…</p></div>';
+  newBox.innerHTML = '<div class="empty"><p>读取中…</p></div>';
+
+  try {
+    const g = await call('storage');
+    if (g !== '1') {
+      $('#fileNotice').innerHTML =
+        '<div class="notice">还没有「所有文件访问权限」，读不到游戏目录。<br>' +
+        '<button class="btn-sm" id="grantBtn" style="margin-top:8px">去授权</button></div>';
+      const b = $('#grantBtn');
+      if (b) b.onclick = () => call('storageSettings').catch(() => {});
+      oldBox.innerHTML = newBox.innerHTML = '<div class="empty"><p>等待授权</p></div>';
+      return;
+    }
+  } catch (e) {}
+  $('#fileNotice').innerHTML = '';
+
+  try { cacheOld = JSON.parse(await call('ls', OLD_ROOT + fileCat) || '[]'); } catch (e) { cacheOld = []; }
+  try { cacheNew = JSON.parse(await call('ls', NEW_ROOT + fileCat) || '[]'); } catch (e) { cacheNew = []; }
+
+  renderFiles(oldBox, cacheOld, true);
+  renderFiles(newBox, cacheNew, false);
+}
+
+$('#fileCats').addEventListener('click', e => {
+  const c = e.target.closest('.chip');
+  if (!c) return;
+  $$('#fileCats .chip').forEach(x => x.classList.remove('on'));
+  c.classList.add('on');
+  fileCat = c.dataset.cat;
+  loadFiles();
+});
+
+$('#fileOld').addEventListener('click', async e => {
+  const b = e.target.closest('[data-imp]');
+  if (!b) return;
+  const f = cacheOld[Number(b.dataset.imp)];
+  if (!f) return;
+  b.disabled = true;
+  b.textContent = '搬运中';
+  try {
+    await call('move', OLD_ROOT + fileCat + '/' + f.name, NEW_ROOT + fileCat + '/' + f.name);
+    toast('已导入 ' + f.name);
+    loadFiles();
+  } catch (err) {
+    b.disabled = false;
+    b.textContent = '导入';
+    toast('失败：' + (err.message || err));
+  }
+});
+
+$('#fileNew').addEventListener('click', async e => {
+  const b = e.target.closest('[data-del]');
+  if (!b) return;
+  const f = cacheNew[Number(b.dataset.del)];
+  if (!f) return;
+  b.disabled = true;
+  try {
+    await call('rm', NEW_ROOT + fileCat + '/' + f.name);
+    toast('已删除 ' + f.name);
+    loadFiles();
+  } catch (err) {
+    b.disabled = false;
+    toast('失败：' + (err.message || err));
+  }
 });
 
 /* ---------------- 设置 ---------------- */
