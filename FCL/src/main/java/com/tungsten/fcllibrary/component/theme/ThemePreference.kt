@@ -28,7 +28,7 @@ data class ThemePreference(
 )
 
 val Context.themeDataStore: DataStore<ThemePreference> by dataStore(
-    fileName = "theme.json",
+    fileName = "theme_lumen.json",
     serializer = ThemePreferenceSerializer
 )
 
