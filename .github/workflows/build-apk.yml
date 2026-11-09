@@ -41,10 +41,24 @@ jobs:
           # NDK 允许 AGP 自行下载，装不上也不阻塞
           "$SM" "ndk;27.0.12077973" || echo "NDK 预装失败，交给 AGP 自动下载"
 
+      # FCL 的 FCLKey 签名配置要读 FCL_KEYSTORE_PASSWORD，CI 里没有。
+      # 这里现生成一个自签调试库覆盖仓库自带的 key-store.jks，别名必须叫 FCL-Key。
+      - name: Provide signing keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore key-store.jks \
+            -storepass lumenbuild -keypass lumenbuild \
+            -alias FCL-Key -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Lumen Debug, O=Lumen, C=CN"
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
       - name: Assemble debug APK
+        env:
+          FCL_KEYSTORE_PASSWORD: lumenbuild
+          CURSE_API_KEY: ""
+          OAUTH_API_KEY: ""
         run: ./gradlew :FCL:assembleDebug --no-daemon --stacktrace -Dorg.gradle.jvmargs=-Xmx4g
 
       - name: Upload APK
