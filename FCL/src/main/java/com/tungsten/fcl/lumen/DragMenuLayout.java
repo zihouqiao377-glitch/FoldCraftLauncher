@@ -1,37 +1,45 @@
 package com.tungsten.fcl.lumen;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
-import android.graphics.Paint;
-import android.graphics.RectF;
 import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Matrix;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
+
 import androidx.constraintlayout.widget.ConstraintLayout;
 
 /**
- * 侧边栏容器：把「点选」扩展成「拖动即选」。
- *
- * 做法是接管这一列的全部触摸事件（onInterceptTouchEvent 恒为 true），
- * 自己做命中测试，因此不会和子项原有的点击逻辑打架。
- *
- * 手指滑过某一项时，该项做一次轻微的横向拉伸（scaleX>1、scaleY<1），
- * 松手后回弹 —— 这就是「被手指拽出去再弹回来」的近似手感。
+ * 侧边栏容器：拖动即选 + 水滴形变。
+ * 1) 触摸：接管整列事件，按纵坐标命中子项
+ * 2) 玻璃：容器自绘圆角底板（子控件 background 会被 FCLMenuView 覆盖）
+ * 3) 水滴：对命中项套 Matrix，朝手指方向拉伸、另一端收窄，松手回弹
  */
 public class DragMenuLayout extends ConstraintLayout {
+
+    private final int slop;
+    private int activeIndex = -1;
+    private float downY = 0f;
+    private float touchY = 0f;
+    private boolean dragging = false;
 
     private final Paint glassFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glassEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
-    private boolean glassInit = false;
+    private final Path path = new Path();
+    private final Matrix deform = new Matrix();
+    private boolean inited = false;
 
-    private final int slop;
-    private int activeIndex = -1;
-    private float downY;
-    private boolean dragging;
+    private float stretch = 0f;
+    private ValueAnimator spring;
+    private ValueAnimator hueAnim;
 
     public DragMenuLayout(Context c) {
         this(c, null);
@@ -48,7 +56,6 @@ public class DragMenuLayout extends ConstraintLayout {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        // 全部事件由本容器统一处理
         return true;
     }
 
@@ -57,53 +64,43 @@ public class DragMenuLayout extends ConstraintLayout {
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downY = ev.getY();
+                touchY = downY;
                 dragging = false;
                 setActive(indexAt(ev.getY()));
                 return true;
-
             case MotionEvent.ACTION_MOVE:
-                if (!dragging && Math.abs(ev.getY() - downY) > slop) {
+                touchY = ev.getY();
+                if (!dragging && Math.abs(touchY - downY) > slop) {
                     dragging = true;
                 }
                 if (dragging) {
-                    setActive(indexAt(ev.getY()));
+                    setActive(indexAt(touchY));
                 }
+                invalidate();
                 return true;
-
             case MotionEvent.ACTION_UP:
-                if (dragging) {
-                    int i = indexAt(ev.getY());
-                    clearActive();
-                    if (i >= 0) {
-                        getChildAt(i).performClick();
-                    }
-                } else {
-                    clearActive();
-                    // 未拖动：交给被按下的那一项处理点击
-                    int i = indexAt(ev.getY());
-                    if (i >= 0) {
-                        getChildAt(i).performClick();
-                    }
+                int i = indexAt(ev.getY());
+                releaseActive();
+                if (i >= 0) {
+                    getChildAt(i).performClick();
                 }
                 dragging = false;
                 return true;
-
             case MotionEvent.ACTION_CANCEL:
-                clearActive();
+                releaseActive();
                 dragging = false;
                 return true;
         }
         return super.onTouchEvent(ev);
     }
 
-    /** 按纵坐标找落在哪一项；找不到返回 -1 */
     private int indexAt(float y) {
         for (int i = 0; i < getChildCount(); i++) {
             View c = getChildAt(i);
             if (c.getVisibility() != VISIBLE) {
                 continue;
             }
-            if (y >= c.getTop() && y <= c.getBottom()) {
+            if (y >= c.getTop() - c.getHeight() * 0.15f && y <= c.getBottom() + c.getHeight() * 0.15f) {
                 return i;
             }
         }
@@ -114,60 +111,97 @@ public class DragMenuLayout extends ConstraintLayout {
         if (index == activeIndex) {
             return;
         }
-        if (activeIndex >= 0 && activeIndex < getChildCount()) {
-            bounce(getChildAt(activeIndex), 1f, 1f, 220);
-        }
         activeIndex = index;
-        if (index >= 0 && index < getChildCount()) {
-            // 横向拉伸、纵向压扁，制造“被拽住”的形变
-            bounce(getChildAt(index), 1.28f, 0.82f, 110);
-        }
+        animateStretch(index >= 0 ? 1f : 0f);
+        invalidate();
     }
 
-    private void clearActive() {
-        if (activeIndex >= 0 && activeIndex < getChildCount()) {
-            bounce(getChildAt(activeIndex), 1f, 1f, 240);
-        }
+    private void releaseActive() {
         activeIndex = -1;
+        animateStretch(0f);
+        invalidate();
     }
 
-    private void bounce(View v, float sx, float sy, long ms) {
-        if (v == null) {
-            return;
+    private void animateStretch(float target) {
+        if (spring != null) {
+            spring.cancel();
         }
-        v.animate()
-                .scaleX(sx)
-                .scaleY(sy)
-                .setDuration(ms)
-                .setInterpolator(new android.view.animation.OvershootInterpolator(2.2f))
-                .start();
+        spring = ValueAnimator.ofFloat(stretch, target);
+        spring.setDuration(target > stretch ? 120 : 320);
+        spring.setInterpolator(target > stretch
+                ? new android.view.animation.DecelerateInterpolator()
+                : new android.view.animation.OvershootInterpolator(2.4f));
+        spring.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator a) {
+                stretch = (Float) a.getAnimatedValue();
+                invalidate();
+            }
+        });
+        spring.start();
     }
-
-    // ---------------- 背景色相缓慢流转 ----------------
-    private android.animation.ValueAnimator hueAnim;
 
     @Override
     protected void onDraw(Canvas canvas) {
-        // 子项背景会被 FCLMenuView 在代码里覆盖，所以玻璃底板由容器自己画
-        if (!glassInit) {
+        if (!inited) {
             glassFill.setColor(0x1FFFFFFF);
             glassEdge.setColor(0x55FFFFFF);
             glassEdge.setStyle(Paint.Style.STROKE);
-            glassEdge.setStrokeWidth(getResources().getDisplayMetrics().density * 1.2f);
-            glassInit = true;
+            glassEdge.setStrokeWidth(getResources().getDisplayMetrics().density * 1.1f);
+            inited = true;
         }
         for (int i = 0; i < getChildCount(); i++) {
-            android.view.View c = getChildAt(i);
+            View c = getChildAt(i);
             if (c.getVisibility() != VISIBLE) {
                 continue;
             }
-            float pad = getResources().getDisplayMetrics().density * 4f;
-            rect.set(c.getLeft() - pad, c.getTop() - pad, c.getRight() + pad, c.getBottom() + pad);
-            float r = getResources().getDisplayMetrics().density * 16f;
-            canvas.drawRoundRect(rect, r, r, glassFill);
-            canvas.drawRoundRect(rect, r, r, glassEdge);
+            drawPlate(canvas, c, i == activeIndex);
         }
         super.onDraw(canvas);
+    }
+
+    private void drawPlate(Canvas canvas, View c, boolean active) {
+        float pad = getResources().getDisplayMetrics().density * 4f;
+        float r = getResources().getDisplayMetrics().density * 16f;
+        rect.set(c.getLeft() - pad, c.getTop() - pad, c.getRight() + pad, c.getBottom() + pad);
+
+        path.reset();
+        path.addRoundRect(rect, r, r, Path.Direction.CW);
+
+        if (active && stretch > 0.01f) {
+            float cy = rect.centerY();
+            float pull = stretch * Math.min(1f, Math.abs(touchY - cy) / (rect.height() * 1.1f));
+            float bulge = rect.width() * 0.18f * pull;
+            RectF blob = new RectF(rect.left - bulge, rect.top, rect.right + bulge, rect.bottom);
+            Path p2 = new Path();
+            p2.addRoundRect(blob, r + bulge * 0.4f, r + bulge * 0.4f, Path.Direction.CW);
+            path.op(p2, Path.Op.UNION);
+        }
+
+        canvas.drawPath(path, glassFill);
+        canvas.drawPath(path, glassEdge);
+    }
+
+    @Override
+    protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
+        int idx = indexOfChild(child);
+        if (idx != activeIndex || stretch <= 0.01f) {
+            return super.drawChild(canvas, child, drawingTime);
+        }
+        float cx = child.getLeft() + child.getWidth() / 2f;
+        float cy = child.getTop() + child.getHeight() / 2f;
+        float near = Math.min(1f, Math.abs(touchY - cy) / (child.getHeight() * 1.4f));
+        float k = stretch * (1f - near);
+
+        deform.reset();
+        deform.postScale(1f + 0.38f * k, 1f - 0.14f * k, cx, cy);
+        deform.postSkew(0f, 0.10f * k * (touchY > cy ? 1f : -1f), cx, cy);
+
+        int save = canvas.save();
+        canvas.concat(deform);
+        boolean r = super.drawChild(canvas, child, drawingTime);
+        canvas.restoreToCount(save);
+        return r;
     }
 
     @Override
@@ -179,6 +213,10 @@ public class DragMenuLayout extends ConstraintLayout {
     @Override
     protected void onDetachedFromWindow() {
         stopHueShift();
+        if (spring != null) {
+            spring.cancel();
+            spring = null;
+        }
         super.onDetachedFromWindow();
     }
 
@@ -186,24 +224,22 @@ public class DragMenuLayout extends ConstraintLayout {
         if (hueAnim != null) {
             return;
         }
-        final View root = getRootView();
-        final View bg = root.findViewById(com.tungsten.fcl.R.id.background);
+        final View bg = getRootView().findViewById(com.tungsten.fcl.R.id.background);
         if (!(bg instanceof android.widget.ImageView)) {
             return;
         }
         final android.widget.ImageView iv = (android.widget.ImageView) bg;
-        hueAnim = android.animation.ValueAnimator.ofFloat(0f, 360f);
+        hueAnim = ValueAnimator.ofFloat(0f, 360f);
         hueAnim.setDuration(26000);
-        hueAnim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        hueAnim.setRepeatCount(ValueAnimator.INFINITE);
         hueAnim.setInterpolator(new android.view.animation.LinearInterpolator());
-        hueAnim.addUpdateListener(new android.animation.ValueAnimator.AnimatorUpdateListener() {
+        hueAnim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
-            public void onAnimationUpdate(android.animation.ValueAnimator a) {
+            public void onAnimationUpdate(ValueAnimator a) {
                 float h = (Float) a.getAnimatedValue();
-                // 只做小幅色相偏移，避免颜色跳到刺眼的区间
-                android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
+                ColorMatrix cm = new ColorMatrix();
                 cm.setRotate(0, h * 0.28f);
-                iv.setColorFilter(new android.graphics.ColorMatrixColorFilter(cm));
+                iv.setColorFilter(new ColorMatrixColorFilter(cm));
             }
         });
         hueAnim.start();
