@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#07070d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Lumen Launcher · 流光启动器</title>
+<style>
+/* ============================================================
+   Lumen Launcher（流光启动器）— 移动端
+   核心三件事：
+   1) 极光流场背景（多个大半径径向渐变 + screen 混合 + 缓慢漂移）
+   2) 玻璃拟态卡片（backdrop-filter + 内高光 + 边缘描边）
+   3) 流光扫过（伪元素斜向光带，长间隔脉冲式扫过）
+   动效曲线统一用 Apple 的 cubic-bezier(.32,.72,0,1)
+   ============================================================ */
+
+:root{
+  --ease: cubic-bezier(.32,.72,0,1);
+  --ease-out: cubic-bezier(.22,1,.36,1);
+  --spring: cubic-bezier(.34,1.56,.64,1);
+
+  /* 主题色（可被 JS 覆盖） */
+  --c1: #7b5cff;
+  --c2: #ff5fa2;
+  --c3: #22d3ee;
+  --c4: #4b8bff;
+
+  --glow: 1;          /* 光晕强度 0~1.4 */
+  --speed: 1;         /* 动画速度倍率，越大越慢 */
+  --blur: 26px;       /* 玻璃模糊强度 */
+  --grain: .045;      /* 颗粒噪点 */
+
+  --text: #f2f3f8;
+  --text-dim: rgba(242,243,248,.62);
+  --text-mute: rgba(242,243,248,.38);
+  --line: rgba(255,255,255,.14);
+  --card: rgba(255,255,255,.055);
+  --card-hi: rgba(255,255,255,.10);
+  --radius: 22px;
+  /* 安全区：浏览器里取 env()，原生壳会把它覆盖成真实像素值 */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:#07070d;
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro SC","PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans SC",system-ui,sans-serif;
+  overflow:hidden;
+  overscroll-behavior:none;
+  touch-action:manipulation;
+  -webkit-font-smoothing:antialiased;
+}
+button{ font:inherit; color:inherit; border:0; background:none; cursor:pointer; }
+a{ text-decoration:none; color:inherit; }
+html,body{ scrollbar-width:none; -ms-overflow-style:none; }
+::-webkit-scrollbar{ width:0 !important; height:0 !important; display:none !important; background:transparent !important; }
+::-webkit-scrollbar-thumb{ background:transparent !important; }
+ul{ margin:0; padding:0; list-style:none; }
+
+/* ---------- 1. 极光流场背景 ---------- */
+.aurora{
+  position:fixed; inset:0; z-index:0; overflow:hidden;
+  background:
+    radial-gradient(120% 90% at 50% -10%, #1b1b3a 0%, #0b0b16 55%, #07070d 100%);
+}
+.blob{
+  position:absolute;
+  border-radius:50%;
+  filter:blur(64px);
+  mix-blend-mode:screen;
+  will-change:transform;
+  opacity:calc(.55 * var(--glow));
+}
+.b1{ width:78vmax; height:78vmax; left:-28vmax; top:-26vmax;
+     background:radial-gradient(circle at 35% 35%, var(--c1), transparent 68%);
+     animation:drift1 calc(26s * var(--speed)) var(--ease) infinite alternate; }
+.b2{ width:66vmax; height:66vmax; right:-24vmax; top:-10vmax;
+     background:radial-gradient(circle at 60% 40%, var(--c2), transparent 66%);
+     animation:drift2 calc(32s * var(--speed)) var(--ease) infinite alternate; }
+.b3{ width:72vmax; height:72vmax; left:-10vmax; bottom:-32vmax;
+     background:radial-gradient(circle at 45% 55%, var(--c3), transparent 68%);
+     animation:drift3 calc(38s * var(--speed)) var(--ease) infinite alternate; }
+.b4{ width:60vmax; height:60vmax; right:-18vmax; bottom:-22vmax;
+     background:radial-gradient(circle at 50% 50%, var(--c4), transparent 66%);
+     animation:drift4 calc(30s * var(--speed)) var(--ease) infinite alternate; }
+
+@keyframes drift1{
+  0%{ transform:translate3d(0,0,0) scale(1) rotate(0deg); }
+  100%{ transform:translate3d(10vmax,6vmax,0) scale(1.18) rotate(18deg); }
+}
+@keyframes drift2{
+  0%{ transform:translate3d(0,0,0) scale(1.05) rotate(0deg); }
+  100%{ transform:translate3d(-9vmax,9vmax,0) scale(.9) rotate(-14deg); }
+}
+@keyframes drift3{
+  0%{ transform:translate3d(0,0,0) scale(.95) rotate(0deg); }
+  100%{ transform:translate3d(8vmax,-8vmax,0) scale(1.2) rotate(12deg); }
+}
+@keyframes drift4{
+  0%{ transform:translate3d(0,0,0) scale(1.1) rotate(0deg); }
+  100%{ transform:translate3d(-7vmax,-6vmax,0) scale(.92) rotate(-20deg); }
+}
+
+/* 暗角，把边缘压下去，中间的光才显得透 */
+.vignette{
+  position:fixed; inset:0; z-index:1; pointer-events:none;
+  background:radial-gradient(120% 80% at 50% 30%, transparent 35%, rgba(4,4,10,.55) 100%);
+}
+/* 细颗粒，避免大面积渐变出现色带 */
+.grain{
+  position:fixed; inset:0; z-index:2; pointer-events:none; opacity:var(--grain);
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
+  mix-blend-mode:overlay;
+}
+
+/* ---------- 2. 玻璃卡片基础件 ---------- */
+.app{
+  position:relative; z-index:3;
+  height:100%;
+  display:flex; flex-direction:column;
+  padding:0 14px;
+}
+
+.glass{
+  position:relative;
+  background:linear-gradient(160deg, var(--card-hi), var(--card) 42%, rgba(255,255,255,.035));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  -webkit-backdrop-filter:blur(var(--blur)) saturate(180%);
+  backdrop-filter:blur(var(--blur)) saturate(180%);
+  box-shadow:
+    0 10px 30px -12px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.18),
+    inset 0 -1px 0 rgba(0,0,0,.18);
+  overflow:hidden;
+  isolation:isolate;
+}
+/* 顶部一道极细高光，模拟玻璃厚度 */
+.glass::before{
+  content:""; position:absolute; inset:0 0 auto 0; height:1px;
+  background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+  opacity:.7;
+}
+
+/* 3) 流光扫过：斜向光带，间隔 6~9 秒扫一次 */
+.glass::after{
+  content:"";
+  position:absolute; top:-60%; bottom:-60%; left:-60%; width:60%;
+  background:linear-gradient(100deg,
+    transparent 0%,
+    rgba(255,255,255,.06) 42%,
+    rgba(255,255,255,.22) 50%,
+    rgba(255,255,255,.06) 58%,
+    transparent 100%);
+  transform:translateX(-140%) rotate(6deg);
+  pointer-events:none;
+  animation:sweep calc(7.5s * var(--speed)) cubic-bezier(.45,0,.22,1) infinite;
+  animation-delay:calc(var(--d, 0) * 1s);
+}
+@keyframes sweep{
+  0%,58%   { transform:translateX(-140%) rotate(6deg); }
+  88%,100% { transform:translateX(360%) rotate(6deg); }
+}
+
+/* ---------- 顶栏（悬浮层） ---------- */
+.topbar{
+  position:absolute; top:0; left:0; right:0; z-index:12;
+  padding:calc(var(--sat) + 10px) 4px 16px;
+  display:flex; align-items:center; gap:10px;
+  background:linear-gradient(180deg, rgba(7,7,13,.86) 0%, rgba(7,7,13,.62) 62%, rgba(7,7,13,0) 100%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  backdrop-filter:blur(20px) saturate(180%);
+  /* 底部渐隐，让模糊层没有一条生硬的分界线 */
+  -webkit-mask:linear-gradient(180deg, #000 0%, #000 58%, transparent 100%);
+  mask:linear-gradient(180deg, #000 0%, #000 58%, transparent 100%);
+  pointer-events:none;
+}
+.topbar > *{ pointer-events:auto; }
+.logo{
+  width:30px; height:30px; border-radius:9px; flex:0 0 auto;
+  background:conic-gradient(from 210deg, var(--c1), var(--c2), var(--c3), var(--c4), var(--c1));
+  box-shadow:0 4px 16px -4px var(--c1), inset 0 1px 0 rgba(255,255,255,.5);
+  display:grid; place-items:center;
+  animation:logoSpin calc(14s * var(--speed)) linear infinite;
+}
+@keyframes logoSpin{ to{ filter:hue-rotate(360deg); } }
+.logo b{ font-size:15px; font-weight:800; letter-spacing:-.5px; color:#fff; }
+.topbar h1{
+  font-size:15px; font-weight:650; margin:0; letter-spacing:.2px;
+}
+.topbar h1 small{
+  display:block; font-size:10.5px; font-weight:450;
+  color:var(--text-mute); letter-spacing:.6px; margin-top:1px;
+}
+.topbar .spacer{ flex:1; }
+.icon-btn{
+  width:34px; height:34px; border-radius:12px; display:grid; place-items:center;
+  color:var(--text-dim);
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10);
+  transition:transform .32s var(--spring), background .28s var(--ease);
+}
+.icon-btn:active{ transform:scale(.9); background:rgba(255,255,255,.14); }
+.icon-btn svg{ width:17px; height:17px; }
+
+/* ---------- 页面容器 ---------- */
+.pages{
+  position:relative; flex:1 1 auto; min-height:0;
+  overflow-y:auto; overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  scrollbar-width:none;
+  padding-top:calc(var(--sat) + 64px);
+  padding-bottom:118px;
+}
+.pages::-webkit-scrollbar{ display:none; }
+
+.page{
+  display:none;
+  animation:pageIn .46s var(--ease-out) both;
+}
+.page.active{ display:block; }
+@keyframes pageIn{
+  from{ opacity:0; transform:translate3d(0,14px,0) scale(.985); }
+  to{ opacity:1; transform:none; }
+}
+/* 页面内子元素依次浮现 */
+.page.active .rise{ animation:rise .55s var(--ease-out) both; }
+.page.active .rise:nth-child(1){ animation-delay:.02s; }
+.page.active .rise:nth-child(2){ animation-delay:.07s; }
+.page.active .rise:nth-child(3){ animation-delay:.12s; }
+.page.active .rise:nth-child(4){ animation-delay:.17s; }
+.page.active .rise:nth-child(5){ animation-delay:.22s; }
+@keyframes rise{
+  from{ opacity:0; transform:translate3d(0,18px,0); }
+  to{ opacity:1; transform:none; }
+}
+
+/* ---------- 主卡片 ---------- */
+.hero{
+  padding:18px;
+  border-radius:26px;
+  display:flex; align-items:center; gap:16px;
+  --d:.4;
+}
+.play{
+  position:relative; z-index:0; isolation:isolate;
+  flex:0 0 auto;
+  width:64px; height:64px; border-radius:50%;
+  display:grid; place-items:center;
+  background:linear-gradient(150deg, #8a6bff, #5a3fd6 55%, #3f2ea8);
+  box-shadow:
+    0 12px 30px -8px rgba(122,84,255,.85),
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -2px 6px rgba(0,0,0,.25);
+  transition:transform .42s var(--spring), box-shadow .3s var(--ease);
+}
+.play:active{ transform:scale(.93); box-shadow:0 6px 18px -6px rgba(122,84,255,.8), inset 0 1px 0 rgba(255,255,255,.4); }
+.play svg{ width:24px; height:24px; margin-left:3px; fill:#fff; }
+/* 旋转光环 */
+.play::before{
+  content:""; position:absolute; inset:-6px; border-radius:50%;
+  background:conic-gradient(from 0deg,
+    transparent 0%,
+    rgba(255,255,255,.9) 6%,
+    transparent 14%,
+    transparent 46%,
+    var(--c3) 54%,
+    transparent 62%,
+    transparent 100%);
+  -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask:radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  animation:ringSpin calc(3.4s * var(--speed)) linear infinite;
+  opacity:calc(.9 * var(--glow));
+  filter:blur(.2px);
+}
+/* 呼吸光晕 */
+.play::after{
+  content:""; position:absolute; inset:-18px; border-radius:50%;
+  background:radial-gradient(circle, rgba(140,100,255,.55), transparent 62%);
+  animation:breathe calc(3.6s * var(--speed)) var(--ease) infinite;
+  z-index:-1;
+}
+@keyframes ringSpin{ to{ transform:rotate(360deg); } }
+@keyframes breathe{
+  0%,100%{ transform:scale(.9); opacity:.45; }
+  50%    { transform:scale(1.12); opacity:.85; }
+}
+
+.hero-main{ flex:1 1 auto; min-width:0; }
+.hero-title{
+  display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+  font-size:15.5px; font-weight:650; letter-spacing:.1px;
+}
+.tag{
+  font-size:10px; font-weight:600; padding:2.5px 7px; border-radius:7px;
+  letter-spacing:.3px; white-space:nowrap;
+}
+.tag-ok{ color:#7ef7c2; background:rgba(60,230,170,.14); border:1px solid rgba(60,230,170,.3); }
+.tag-brand{ color:#c9b8ff; background:rgba(140,110,255,.16); border:1px solid rgba(140,110,255,.32); }
+.hero-sub{
+  margin-top:5px; font-size:12px; color:var(--text-dim);
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+}
+.link{ color:#a99bff; font-size:11.5px; }
+
+.account{
+  flex:0 0 auto; display:flex; align-items:center; gap:9px;
+  padding:6px 10px 6px 6px; border-radius:14px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10);
+  transition:transform .34s var(--spring), background .3s;
+}
+.account:active{ transform:scale(.95); background:rgba(255,255,255,.13); }
+.avatar{
+  width:32px; height:32px; border-radius:9px; flex:0 0 auto;
+  display:grid; place-items:center; font-size:14px; font-weight:700; color:#fff;
+  background:linear-gradient(145deg,#5ac8fa,#2f6bff 60%,#7b5cff);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 4px 12px -4px #2f6bff;
+}
+.account .who{ line-height:1.15; }
+.account .who b{ display:block; font-size:12px; font-weight:600; }
+.account .who span{ font-size:10px; color:var(--text-mute); }
+
+/* ---------- 快捷入口 ---------- */
+.quick{
+  margin-top:14px;
+  display:grid; grid-template-columns:repeat(4,1fr); gap:9px;
+}
+.qbtn{
+  padding:12px 4px 11px; border-radius:17px; text-align:center;
+  display:flex; flex-direction:column; align-items:center; gap:7px;
+  font-size:11px; color:var(--text-dim); font-weight:500;
+  background:linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
+  border:1px solid rgba(255,255,255,.11);
+  -webkit-backdrop-filter:blur(14px) saturate(160%);
+  backdrop-filter:blur(14px) saturate(160%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+  transition:transform .38s var(--spring), background .3s var(--ease);
+}
+.qbtn:active{ transform:scale(.93); background:rgba(255,255,255,.16); }
+.qbtn i{ display:grid; place-items:center; width:26px; height:26px; }
+.qbtn svg{ width:19px; height:19px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.qbtn:nth-child(1){ color:#b9a6ff; }
+.qbtn:nth-child(2){ color:#7ee0ff; }
+.qbtn:nth-child(3){ color:#7ef7c2; }
+.qbtn:nth-child(4){ color:#ffc98a; }
+
+/* ---------- 区块标题 ---------- */
+.sec-head{
+  margin:20px 2px 9px;
+  display:flex; align-items:center; justify-content:space-between;
+}
+.sec-head h2{
+  margin:0; font-size:12.5px; font-weight:600;
+  color:var(--text-dim); letter-spacing:.5px;
+  display:flex; align-items:center; gap:6px;
+}
+.sec-head h2 svg{ width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; }
+.sec-head a{ font-size:11.5px; color:var(--text-mute); }
+
+/* ---------- 版本列表 ---------- */
+.vlist{ padding:6px; --d:1.1; }
+.vrow{
+  display:flex; align-items:center; gap:10px;
+  padding:11px 11px; border-radius:14px;
+  transition:background .28s var(--ease), transform .3s var(--spring);
+  position:relative;
+}
+.vrow + .vrow::before{
+  content:""; position:absolute; left:14px; right:14px; top:0; height:1px;
+  background:rgba(255,255,255,.07);
+}
+.vrow:active{ transform:scale(.985); background:rgba(255,255,255,.07); }
+.vrow .dot{
+  width:6px; height:6px; border-radius:50%; flex:0 0 auto;
+  background:rgba(255,255,255,.25);
+}
+.vrow.on .dot{
+  background:#7ef7c2;
+  box-shadow:0 0 0 4px rgba(126,247,194,.16), 0 0 10px rgba(126,247,194,.9);
+}
+.vrow .nm{
+  flex:1 1 auto; min-width:0;
+  font-size:13px; font-weight:500;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.vrow.on .nm{ font-weight:650; }
+.loader{
+  font-size:10px; font-weight:600; padding:2px 7px; border-radius:6px;
+  color:#c4b6ff; background:rgba(140,110,255,.15); border:1px solid rgba(140,110,255,.26);
+}
+.loader.forge{ color:#ffb98a; background:rgba(255,150,80,.14); border-color:rgba(255,150,80,.28); }
+
+/* ---------- 联机 / 进程 ---------- */
+.proc{
+  padding:13px; --d:.8;
+}
+.proc-head{
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:11px;
+}
+.proc-head b{ font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; }
+.proc-head b svg{ width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.8; }
+.close-btn{
+  font-size:11px; padding:5px 11px; border-radius:9px; font-weight:600;
+  color:#ff9aa8; background:rgba(255,80,110,.14); border:1px solid rgba(255,80,110,.3);
+  transition:transform .32s var(--spring), background .28s;
+}
+.close-btn:active{ transform:scale(.92); background:rgba(255,80,110,.26); }
+
+.proc-row{ display:flex; align-items:center; gap:11px; }
+.proc-ico{
+  width:38px; height:38px; border-radius:11px; flex:0 0 auto;
+  display:grid; place-items:center;
+  background:linear-gradient(150deg, rgba(126,247,194,.28), rgba(60,200,150,.10));
+  border:1px solid rgba(126,247,194,.3);
+}
+.proc-ico svg{ width:18px; height:18px; stroke:#7ef7c2; fill:none; stroke-width:1.8; }
+.proc-meta{ flex:1 1 auto; min-width:0; }
+.proc-meta b{ display:block; font-size:13px; font-weight:600; }
+.proc-meta span{ font-size:10.5px; color:var(--text-mute); }
+.pulse{
+  width:8px; height:8px; border-radius:50%; background:#7ef7c2;
+  box-shadow:0 0 0 0 rgba(126,247,194,.6);
+  animation:pulse 2s var(--ease) infinite;
+}
+@keyframes pulse{
+  0%  { box-shadow:0 0 0 0 rgba(126,247,194,.55); }
+  70% { box-shadow:0 0 0 10px rgba(126,247,194,0); }
+  100%{ box-shadow:0 0 0 0 rgba(126,247,194,0); }
+}
+.proc-stats{
+  margin-top:11px; padding-top:10px;
+  border-top:1px solid rgba(255,255,255,.08);
+  display:grid; grid-template-columns:repeat(4,1fr); gap:8px;
+}
+.stat{ text-align:center; }
+.stat span{ display:block; font-size:9.5px; color:var(--text-mute); margin-bottom:3px; }
+.stat b{ font-size:11px; font-weight:600; color:var(--text-dim); }
+
+/* 空状态 */
+.empty{
+  padding:34px 16px; text-align:center; --d:1.3;
+}
+.empty svg{ width:30px; height:30px; stroke:rgba(255,255,255,.22); fill:none; stroke-width:1.4; margin-bottom:10px; }
+.empty p{ margin:0; font-size:12px; color:var(--text-mute); }
+
+/* ---------- 底部状态 ---------- */
+.footline{
+  margin:12px 4px 0; display:flex; align-items:center; gap:7px;
+  font-size:10.5px; color:var(--text-mute);
+}
+.footline .pulse{ width:6px; height:6px; }
+
+/* ---------- 底部标签栏 ---------- */
+.tabbar{
+  position:absolute; left:14px; right:14px;
+  bottom:calc(var(--sab) + 12px);
+  height:62px; border-radius:24px;
+  display:grid; grid-template-columns:repeat(5,1fr);
+  padding:6px;
+  background:rgba(18,18,28,.62);
+  border:1px solid rgba(255,255,255,.13);
+  -webkit-backdrop-filter:blur(30px) saturate(190%);
+  backdrop-filter:blur(30px) saturate(190%);
+  box-shadow:0 18px 40px -16px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.16);
+  z-index:20;
+}
+.tab{
+  position:relative; border-radius:18px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  font-size:9.5px; color:var(--text-mute); font-weight:500;
+  transition:color .3s var(--ease), transform .4s var(--spring);
+  z-index:1;
+}
+.tab svg{ width:19px; height:19px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; transition:transform .42s var(--spring); }
+.tab:active{ transform:scale(.9); }
+.tab.on{ color:#fff; }
+.tab.on svg{ transform:translateY(-1px) scale(1.06); filter:drop-shadow(0 0 8px rgba(170,140,255,.9)); }
+.tab-ind{
+  position:absolute; left:6px; top:6px; bottom:6px; border-radius:18px;
+  width:0;
+  background:linear-gradient(160deg, rgba(150,120,255,.38), rgba(120,90,255,.14));
+  border:1px solid rgba(180,160,255,.34);
+  box-shadow:0 6px 18px -8px rgba(130,100,255,.9), inset 0 1px 0 rgba(255,255,255,.22);
+  transition:transform .5s var(--ease-out), width .5s var(--ease-out);
+  z-index:0; pointer-events:none;
+}
+
+/* ---------- 设置面板（底部弹出） ---------- */
+.scrim{
+  position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.45);
+  -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px);
+  opacity:0; pointer-events:none; transition:opacity .38s var(--ease);
+}
+.scrim.on{ opacity:1; pointer-events:auto; }
+.sheet{
+  position:fixed; left:0; right:0; bottom:0; z-index:41;
+  border-radius:28px 28px 0 0;
+  padding:10px 18px calc(var(--sab) + 24px);
+  background:linear-gradient(180deg, rgba(30,30,46,.94), rgba(16,16,26,.97));
+  border-top:1px solid rgba(255,255,255,.16);
+  -webkit-backdrop-filter:blur(40px) saturate(180%);
+  backdrop-filter:blur(40px) saturate(180%);
+  box-shadow:0 -20px 60px -20px rgba(0,0,0,.95);
+  transform:translate3d(0,102%,0);
+  transition:transform .52s var(--ease-out);
+  will-change:transform;
+}
+.sheet.on{ transform:translate3d(0,0,0); }
+.grabber{
+  width:38px; height:4.5px; border-radius:99px; margin:4px auto 16px;
+  background:rgba(255,255,255,.26);
+}
+.sheet h3{ margin:0 0 16px; font-size:15px; font-weight:650; }
+
+.field{ margin-bottom:18px; }
+.field label{
+  display:flex; justify-content:space-between; align-items:baseline;
+  font-size:12.5px; color:var(--text-dim); margin-bottom:9px;
+}
+.field label em{ font-style:normal; font-size:11px; color:var(--text-mute); font-variant-numeric:tabular-nums; }
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:99px;
+  background:linear-gradient(90deg, #8a6bff, #ff5fa2); outline:none;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:20px; height:20px; border-radius:50%;
+  background:#fff; box-shadow:0 2px 10px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.08);
+  transition:transform .25s var(--spring);
+}
+input[type=range]::-webkit-slider-thumb:active{ transform:scale(1.15); }
+
+.swatches{ display:flex; gap:10px; }
+.sw{
+  flex:1; height:44px; border-radius:14px; position:relative;
+  border:1px solid rgba(255,255,255,.16);
+  transition:transform .38s var(--spring);
+}
+.sw:active{ transform:scale(.94); }
+.sw.on{ box-shadow:0 0 0 2px #fff, 0 6px 18px -6px rgba(255,255,255,.5); }
+.sw span{ position:absolute; inset:auto 0 6px 0; text-align:center; font-size:9.5px; color:rgba(255,255,255,.9); }
+
+@media (min-width:560px){
+  .app{ max-width:520px; margin:0 auto; padding:0 18px; }
+  .tabbar{ max-width:496px; left:50%; transform:translateX(-50%); right:auto; width:calc(100% - 36px); }
+}
+</style>
+</head>
+<style>
+/* ---------- 追加：表单 / 列表 / 进度 ---------- */
+.searchbar{ padding:0 2px 10px; }
+.searchbar input, .input{
+  width:100%; padding:12px 14px; border-radius:14px; font-size:13px;
+  color:var(--text); background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.12);
+  -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+  outline:none; transition:border-color .25s var(--ease), background .25s var(--ease);
+}
+.searchbar input::placeholder, .input::placeholder{ color:var(--text-mute); }
+.searchbar input:focus, .input:focus{ border-color:rgba(160,130,255,.55); background:rgba(255,255,255,.11); }
+.chips{ display:flex; gap:8px; padding:0 2px 12px; overflow-x:auto; scrollbar-width:none; }
+.chips::-webkit-scrollbar{ display:none; }
+.chip{
+  flex:0 0 auto; padding:7px 14px; border-radius:11px; font-size:12px;
+  color:var(--text-dim); background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10); transition:all .3s var(--ease);
+}
+.chip.on{ color:#fff; background:linear-gradient(160deg,rgba(150,120,255,.5),rgba(120,90,255,.25)); border-color:rgba(180,160,255,.5); }
+.chip:active{ transform:scale(.94); }
+.vrow .col{ flex:1 1 auto; min-width:0; }
+.vrow .meta{ display:block; font-size:10px; color:var(--text-mute); margin-top:3px; }
+.btn-sm{
+  flex:0 0 auto; padding:7px 13px; border-radius:10px; font-size:11px; font-weight:600;
+  color:#d8ccff; background:rgba(140,110,255,.18); border:1px solid rgba(140,110,255,.35);
+  transition:transform .3s var(--spring), background .25s var(--ease);
+}
+.btn-sm:active{ transform:scale(.93); }
+.btn-sm[disabled]{ opacity:.45; }
+.btn-sm.done{ color:#7ef7c2; background:rgba(60,230,170,.14); border-color:rgba(60,230,170,.3); }
+.btn-sm.warn{ color:#ffb98a; background:rgba(255,150,80,.14); border-color:rgba(255,150,80,.3); }
+.bar{ height:4px; border-radius:99px; background:rgba(255,255,255,.12); overflow:hidden; margin-top:8px; }
+.bar>i{ display:block; height:100%; width:0; border-radius:99px;
+  background:linear-gradient(90deg,var(--c1),var(--c3)); transition:width .18s linear; }
+.primary{
+  width:100%; margin-top:10px; padding:12px; border-radius:14px; font-size:13px; font-weight:600; color:#fff;
+  background:linear-gradient(150deg,#8a6bff,#5a3fd6);
+  box-shadow:0 10px 24px -12px rgba(122,84,255,.9);
+  transition:transform .34s var(--spring);
+}
+.primary:active{ transform:scale(.97); }
+.kv{ display:flex; align-items:center; justify-content:space-between; padding:13px 14px; font-size:13px; }
+.kv + .kv{ border-top:1px solid rgba(255,255,255,.07); }
+.kv b{ font-size:12px; color:var(--text-dim); font-weight:500; max-width:60%; text-align:right;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dim{ color:var(--text-mute); font-size:11px; }
+.notice{
+  margin:0 2px 12px; padding:11px 13px; border-radius:14px; font-size:11.5px; line-height:1.55;
+  color:#ffd8a8; background:rgba(255,170,80,.10); border:1px solid rgba(255,170,80,.26);
+}
+.spin{ display:inline-block; width:12px; height:12px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.2); border-top-color:#c9b8ff;
+  animation:sp .8s linear infinite; vertical-align:-2px; margin-right:6px; }
+@keyframes sp{ to{ transform:rotate(360deg); } }
+</style>
+
+<div class="aurora">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+  <div class="blob b4"></div>
+</div>
+<div class="vignette"></div>
+<div class="grain"></div>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="logo"><b>L</b></div>
+    <h1>Lumen Launcher<small>LUMEN · 流光启动器</small></h1>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="openSettings" aria-label="外观设置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3.2"/>
+        <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.77-.32 1.6 1.6 0 0 0-.97 1.46V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1.05-1.46 1.6 1.6 0 0 0-1.77.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.6 1.6 0 0 0 4.6 15a1.6 1.6 0 0 0-1.46-.97H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.56 9a1.6 1.6 0 0 0-.32-1.77l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.6 1.6 0 0 0 9 4.6h.08A1.6 1.6 0 0 0 10 3.14V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 .97 1.46 1.6 1.6 0 0 0 1.77-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.6 1.6 0 0 0 19.4 9v.08a1.6 1.6 0 0 0 1.46.97H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5.95z"/>
+      </svg>
+    </button>
+  </header>
+
+  <main class="pages" id="pages">
+
+    <!-- ================= 主页 ================= -->
+    <section class="page active" data-page="home">
+      <div class="glass hero rise">
+        <button class="play" id="playBtn" aria-label="启动游戏">
+          <svg viewBox="0 0 24 24"><path d="M8 5.2c0-.9 1-1.5 1.8-1L19 11c.8.5.8 1.6 0 2.1L9.8 20c-.8.5-1.8-.1-1.8-1z"/></svg>
+        </button>
+        <div class="hero-main">
+          <div class="hero-title" id="heroVersion">
+            未选择版本
+            <span class="tag tag-brand">移动版</span>
+          </div>
+          <div class="hero-sub"><span id="heroHint">去「下载」里挑一个版本</span></div>
+        </div>
+        <button class="account" id="accBtn">
+          <span class="avatar" id="heroAvatar">?</span>
+          <span class="who"><b id="heroName">未登录</b><span id="heroAccType">离线账户</span></span>
+        </button>
+      </div>
+
+      <div class="quick rise">
+        <button class="qbtn" data-go="download">
+          <i><svg viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></i>
+          下载版本
+        </button>
+        <button class="qbtn" data-go="mods">
+          <i><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5c2.4 2.3 3.8 5.3 3.8 8.5s-1.4 6.2-3.8 8.5c-2.4-2.3-3.8-5.3-3.8-8.5S9.6 5.8 12 3.5z"/><path d="M3.5 12h17"/></svg></i>
+          资源库
+        </button>
+        <button class="qbtn" data-go="account">
+          <i><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"/></svg></i>
+          账户
+        </button>
+        <button class="qbtn" data-go="settings">
+          <i><svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h9M17 18h3"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="18" r="2"/></svg></i>
+          设置
+        </button>
+      </div>
+
+      <div class="sec-head rise">
+        <h2>
+          <svg viewBox="0 0 24 24"><path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>
+          已下载版本
+        </h2>
+        <a data-go="download">管理</a>
+      </div>
+      <div class="glass vlist rise" id="installedList">
+        <div class="empty"><p>还没有下载任何版本</p></div>
+      </div>
+
+      <div class="sec-head rise">
+        <h2>
+          <svg viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="13" rx="2.5"/><path d="M8 21h8"/></svg>
+          运行环境
+        </h2>
+      </div>
+      <div class="glass rise">
+        <div class="kv"><span>Java 运行时</span><b id="envJava">未内置</b></div>
+        <div class="kv"><span>启动方式</span><b id="envLaunch">外部接管</b></div>
+        <div class="kv"><span>数据目录</span><b id="envDir">读取中…</b></div>
+      </div>
+
+      <div class="footline rise">
+        <span class="pulse"></span>
+        <span id="footState">就绪</span>
+        <span style="margin-left:auto">Lumen v1.1.0</span>
+      </div>
+    </section>
+
+    <!-- ================= 下载 ================= -->
+    <section class="page" data-page="download">
+      <div class="searchbar">
+        <input id="vSearch" type="search" placeholder="搜索版本号，如 1.21.8" autocomplete="off">
+      </div>
+      <div class="chips">
+        <button class="chip on" data-type="release">正式版</button>
+        <button class="chip" data-type="snapshot">快照</button>
+        <button class="chip" data-type="all">全部</button>
+      </div>
+      <div class="glass vlist" id="versionList">
+        <div class="empty"><p><span class="spin"></span>正在拉取版本清单…</p></div>
+      </div>
+    </section>
+
+    <!-- ================= 资源 ================= -->
+    <section class="page" data-page="mods">
+      <div class="searchbar">
+        <input id="modSearch" type="search" placeholder="搜索模组，如 JEI、Sodium" autocomplete="off">
+      </div>
+      <div class="glass vlist" id="modList">
+        <div class="empty"><p>输入关键词，从 Modrinth 搜索</p></div>
+      </div>
+    </section>
+
+    <!-- ================= 账户 ================= -->
+    <section class="page" data-page="account">
+      <div class="glass hero">
+        <span class="avatar" id="accBigAvatar" style="width:52px;height:52px;border-radius:15px;font-size:22px">?</span>
+        <div class="hero-main">
+          <div class="hero-title" id="accBigName">未登录</div>
+          <div class="hero-sub"><span class="tag tag-brand" id="accBigType">离线账户</span><span id="accBigUuid"></span></div>
+        </div>
+      </div>
+
+      <div class="sec-head"><h2>添加离线账户</h2></div>
+      <div class="glass" style="padding:14px">
+        <input id="accName" class="input" placeholder="玩家名（3–16 位，字母数字下划线）" maxlength="16" autocomplete="off">
+        <button class="primary" id="accAdd">添加账户</button>
+      </div>
+
+      <div class="sec-head"><h2>账户列表</h2></div>
+      <div class="glass vlist" id="accList">
+        <div class="empty"><p>暂无账户</p></div>
+      </div>
+    </section>
+
+    <!-- ================= 设置 ================= -->
+    <section class="page" data-page="settings">
+      <div class="glass vlist">
+        <div class="kv" id="classicRow"><span>FCL 原生界面</span><b>进入 ›</b></div>
+        <div class="kv" id="srcRow"><span>下载源</span><b id="srcLabel">官方 Mojang</b></div>
+        <div class="kv"><span>数据目录</span><b id="setDir">…</b></div>
+        <div class="kv"><span>已下载版本</span><b id="setCount">0</b></div>
+        <div class="kv"><span>版本</span><b>1.1.0 (3)</b></div>
+      </div>
+      <div class="sec-head"><h2>外观</h2></div>
+      <div class="glass vlist">
+        <div class="vrow" id="openSheetRow"><span class="dot"></span><span class="nm">流光效果 · 主题</span><span class="loader">调节</span></div>
+      </div>
+      <div class="notice" style="margin-top:14px">
+        本应用是启动器的<strong>前端与资源管理层</strong>：版本清单、文件下载、账户、模组检索均走真实接口。
+        启动游戏需要 JVM 与 LWJGL/GL4ES 运行时，需由已安装的运行时应用接管。
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" id="tabbar">
+    <span class="tab-ind" id="tabInd"></span>
+    <button class="tab on" data-page="home">
+      <svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7"/><path d="M6.5 9.5V20h11V9.5"/></svg>
+      主页
+    </button>
+    <button class="tab" data-page="download">
+      <svg viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      下载
+    </button>
+    <button class="tab" data-page="mods">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5c2.4 2.3 3.8 5.3 3.8 8.5s-1.4 6.2-3.8 8.5c-2.4-2.3-3.8-5.3-3.8-8.5S9.6 5.8 12 3.5z"/><path d="M3.5 12h17"/></svg>
+      资源
+    </button>
+    <button class="tab" data-page="account">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"/></svg>
+      账户
+    </button>
+    <button class="tab" data-page="settings">
+      <svg viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h9M17 18h3"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="18" r="2"/></svg>
+      设置
+    </button>
+  </nav>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <div class="grabber"></div>
+  <h3>外观与性能</h3>
+  <div class="field">
+    <label>光晕强度 <em id="vGlow">100%</em></label>
+    <input type="range" id="rGlow" min="0" max="140" value="100">
+  </div>
+  <div class="field">
+    <label>动画速度 <em id="vSpeed">1.0×</em></label>
+    <input type="range" id="rSpeed" min="40" max="220" value="100">
+  </div>
+  <div class="field">
+    <label>玻璃模糊 <em id="vBlur">26 px</em></label>
+    <input type="range" id="rBlur" min="0" max="40" value="26">
+  </div>
+  <div class="field" style="margin-bottom:8px">
+    <label>配色</label>
+    <div class="swatches">
+      <button class="sw on" data-theme="aurora" style="background:linear-gradient(135deg,#7b5cff,#ff5fa2,#22d3ee)"><span>极光紫</span></button>
+      <button class="sw" data-theme="ocean" style="background:linear-gradient(135deg,#1e5bff,#00c2ff,#54f2c8)"><span>深海蓝</span></button>
+      <button class="sw" data-theme="sunset" style="background:linear-gradient(135deg,#ff7a3d,#ff3d81,#ffd166)"><span>晨曦橙</span></button>
+      <button class="sw" data-theme="mint" style="background:linear-gradient(135deg,#00b894,#4ecdc4,#a8e063)"><span>薄荷绿</span></button>
+    </div>
+  </div>
+  <p style="font-size:10.5px;color:var(--text-mute);line-height:1.6;margin:16px 2px 0">
+    手机上如果掉帧，把「玻璃模糊」调到 0、「光晕强度」降到 60% 以下，性能会明显回升。
+  </p>
+</div>
+
+<script>
+/* ============================================================
+   Lumen Launcher —— 前端逻辑
+   网络与文件全部走原生桥（LumenBridge），因为页面是 file:// 源，
+   任何跨域 fetch 都会被 CORS 拦掉。
+   ============================================================ */
+
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+const HAS_BRIDGE = typeof LumenBridge !== 'undefined';
+const OFFICIAL = 'https://launchermeta.mojang.com/mc/game/version_manifest_v2.json';
+const MIRROR   = 'https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json';
+const MODRINTH = 'https://api.modrinth.com/v2/search';
+
+/* ---------------- 原生桥封装 ---------------- */
+const pending = new Map();
+let seq = 0;
+
+window.__native = {
+  resolve(id, ok, payload) {
+    const p = pending.get(id);
+    if (!p) return;
+    pending.delete(id);
+    ok ? p.res(payload) : p.rej(new Error(payload || '调用失败'));
+  },
+  progress(id, pct, bytes) {
+    const p = pending.get(id);
+    if (p && p.onProgress) p.onProgress(pct, bytes);
+  }
+};
+
+function call(op, a, b, onProgress) {
+  if (!HAS_BRIDGE) return Promise.reject(new Error('NO_BRIDGE'));
+  const id = 'q' + (++seq);
+  return new Promise((res, rej) => {
+    pending.set(id, { res, rej, onProgress });
+    try { LumenBridge.call(id, op, a || '', b || '', ''); }
+    catch (e) { pending.delete(id); rej(e); }
+  });
+}
+
+/* ---------------- 本地存储 ---------------- */
+const store = {
+  async get(key, def) {
+    try {
+      const v = await call('prefs.get', key);
+      return v ? JSON.parse(v) : def;
+    } catch { return def; }
+  },
+  async set(key, val) {
+    try { await call('prefs.set', key, JSON.stringify(val)); } catch {}
+  }
+};
+
+/* ---------------- md5（离线账户 UUID 需要） ---------------- */
+function md5(str) {
+  // 全部按 32 位无符号处理：& 0xffffffff 在 JS 里会返回有符号 int32，
+  // 负数参与后续加法会把结果带偏，所以统一用 >>> 0。
+  const ad = (a, b) => (a + b) >>> 0;
+  const rl = (n, c) => ((n << c) | (n >>> (32 - c))) >>> 0;
+
+  const s = [7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+             5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,
+             4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+             6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];
+  const K = [];
+  for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) >>> 0;
+
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c < 128) bytes.push(c);
+    else if (c < 2048) { bytes.push(192 | (c >> 6)); bytes.push(128 | (c & 63)); }
+    else { bytes.push(224 | (c >> 12)); bytes.push(128 | ((c >> 6) & 63)); bytes.push(128 | (c & 63)); }
+  }
+  const bitLen = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let i = 0; i < 8; i++) bytes.push((bitLen / Math.pow(2, 8 * i)) & 0xff);
+
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+
+  for (let off = 0; off < bytes.length; off += 64) {
+    const M = [];
+    for (let i = 0; i < 16; i++) {
+      const j = off + i * 4;
+      M[i] = (bytes[j] | (bytes[j+1] << 8) | (bytes[j+2] << 16) | (bytes[j+3] << 24)) >>> 0;
+    }
+    let A = a0, B = b0, C = c0, D = d0;
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16)      { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D;          g = (3 * i + 5) % 16; }
+      else             { F = C ^ (B | ~D);       g = (7 * i) % 16; }
+
+      const sum = (A + F + K[i] + M[g]) >>> 0;
+      const tmp = D;
+      D = C;
+      C = B;
+      B = ad(B, rl(sum, s[i]));
+      A = tmp;
+    }
+    a0 = ad(a0, A); b0 = ad(b0, B); c0 = ad(c0, C); d0 = ad(d0, D);
+  }
+
+  const hex = n => {
+    let out = '';
+    for (let i = 0; i < 4; i++) out += ((n >>> (8 * i)) & 0xff).toString(16).padStart(2, '0');
+    return out;
+  };
+  return hex(a0) + hex(b0) + hex(c0) + hex(d0);
+}
+
+function offlineUuid(name) {
+  const h = md5('OfflinePlayer:' + name).split('');
+  h[12] = '3';                                   // version 3
+  const v = parseInt(h[16], 16);
+  h[16] = ((v & 0x3) | 0x8).toString(16);        // RFC 4122 variant
+  const s = h.join('');
+  return `${s.slice(0,8)}-${s.slice(8,12)}-${s.slice(12,16)}-${s.slice(16,20)}-${s.slice(20)}`;
+}
+
+/* ---------------- 页面切换 ---------------- */
+const pages = $$('.page');
+const tabs = $$('.tab');
+const tabInd = $('#tabInd');
+const pagesEl = $('#pages');
+
+function moveIndicator(btn) {
+  const bar = tabInd.parentElement;
+  const br = bar.getBoundingClientRect();
+  const r = btn.getBoundingClientRect();
+  tabInd.style.width = r.width + 'px';
+  tabInd.style.transform = `translateX(${r.left - br.left - 6}px)`;
+}
+
+function go(name, then) {
+  pages.forEach(p => p.classList.toggle('active', p.dataset.page === name));
+  tabs.forEach(t => t.classList.toggle('on', t.dataset.page === name));
+  const target = tabs.find(t => t.dataset.page === name);
+  if (target) moveIndicator(target);
+  pagesEl.scrollTo({ top: 0, behavior: 'smooth' });
+  if (then) then();
+}
+
+tabs.forEach(t => t.addEventListener('click', () => go(t.dataset.page)));
+$$('[data-go]').forEach(el => el.addEventListener('click', e => {
+  e.preventDefault();
+  go(el.dataset.go);
+}));
+
+function initInd() {
+  const a = tabs.find(t => t.classList.contains('on'));
+  if (a) moveIndicator(a);
+}
+window.addEventListener('load', initInd);
+window.addEventListener('resize', initInd);
+setTimeout(initInd, 60);
+
+/* ---------------- 状态 ---------------- */
+const state = {
+  accounts: [],
+  current: null,
+  installed: [],
+  dir: '',
+  manifest: null,
+  filter: 'release',
+  query: ''
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ---------------- 顶部提示 ---------------- */
+function setFoot(text) {
+  const el = $('#footState');
+  if (el) el.textContent = text;
+}
+
+function toast(msg) {
+  setFoot(msg);
+  if (HAS_BRIDGE) call('toast', msg).catch(() => {});
+}
+
+/* ---------------- 账户 ---------------- */
+function renderAccounts() {
+  const list = $('#accList');
+  if (!state.accounts.length) {
+    list.innerHTML = '<div class="empty"><p>暂无账户</p></div>';
+  } else {
+    list.innerHTML = state.accounts.map((a, i) => {
+      const on = state.current === a.name;
+      return `<div class="vrow ${on ? 'on' : ''}" data-acc="${i}">
+        <span class="dot"></span>
+        <span class="col"><span class="nm">${esc(a.name)}</span>
+          <span class="meta">${esc(a.uuid.slice(0, 13))}…</span></span>
+        <button class="btn-sm ${on ? 'done' : ''}" data-act="${on ? 'none' : 'use'}" data-i="${i}">${on ? '当前' : '切换'}</button>
+        <button class="btn-sm warn" data-act="del" data-i="${i}">删除</button>
+      </div>`;
+    }).join('');
+  }
+
+  const cur = state.accounts.find(a => a.name === state.current);
+  const name = cur ? cur.name : '未登录';
+  const initial = cur ? cur.name.slice(0, 1).toUpperCase() : '?';
+
+  $('#heroName').textContent = name;
+  $('#heroAvatar').textContent = initial;
+  $('#heroAccType').textContent = cur ? '离线账户' : '离线账户';
+  $('#accBigName').textContent = name;
+  $('#accBigAvatar').textContent = initial;
+  $('#accBigUuid').textContent = cur ? cur.uuid.slice(0, 18) + '…' : '';
+}
+
+$('#accList').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const i = Number(btn.dataset.i);
+  const acc = state.accounts[i];
+  if (!acc) return;
+  if (btn.dataset.act === 'use') {
+    state.current = acc.name;
+    await store.set('current', state.current);
+    renderAccounts();
+    toast('已切换到 ' + acc.name);
+  } else if (btn.dataset.act === 'del') {
+    state.accounts.splice(i, 1);
+    if (state.current === acc.name) state.current = state.accounts[0] ? state.accounts[0].name : null;
+    await store.set('accounts', state.accounts);
+    await store.set('current', state.current);
+    renderAccounts();
+    toast('已删除 ' + acc.name);
+  }
+});
+
+$('#accAdd').addEventListener('click', async () => {
+  const name = ($('#accName').value || '').trim();
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
+    toast('玩家名需 3–16 位字母/数字/下划线');
+    return;
+  }
+  if (state.accounts.some(a => a.name.toLowerCase() === name.toLowerCase())) {
+    toast('该账户已存在');
+    return;
+  }
+  const acc = { name, uuid: offlineUuid(name), type: 'offline', added: Date.now() };
+  state.accounts.push(acc);
+  state.current = name;
+  await store.set('accounts', state.accounts);
+  await store.set('current', state.current);
+  $('#accName').value = '';
+  renderAccounts();
+  toast('已添加 ' + name);
+});
+
+$('#accBtn').addEventListener('click', () => go('account'));
+
+/* ---------------- 已下载版本 ---------------- */
+function renderInstalled() {
+  const box = $('#installedList');
+  if (!state.installed.length) {
+    box.innerHTML = '<div class="empty"><p>还没有下载任何版本</p></div>';
+  } else {
+    box.innerHTML = state.installed.map((v, i) => `
+      <div class="vrow ${i === 0 ? 'on' : ''}" data-ver="${esc(v.id)}">
+        <span class="dot"></span>
+        <span class="col"><span class="nm">${esc(v.id)}</span>
+          <span class="meta">${v.type === 'release' ? '正式版' : v.type === 'snapshot' ? '快照' : esc(v.type)} · ${(v.size / 1048576).toFixed(1)} MB</span></span>
+        <button class="btn-sm warn" data-del="${esc(v.id)}">删除</button>
+      </div>`).join('');
+  }
+
+  const latest = state.installed[0];
+  $('#heroVersion').firstChild.textContent = latest ? latest.id + ' ' : '未选择版本 ';
+  $('#heroHint').textContent = latest
+    ? (latest.type === 'release' ? '正式版' : '快照') + ' · 已下载核心文件'
+    : '去「下载」里挑一个版本';
+  $('#setCount').textContent = String(state.installed.length);
+}
+
+$('#installedList').addEventListener('click', async e => {
+  const del = e.target.closest('[data-del]');
+  if (!del) return;
+  const id = del.dataset.del;
+  const v = state.installed.find(x => x.id === id);
+  if (!v) return;
+  try { await call('delete', v.dir); } catch {}
+  state.installed = state.installed.filter(x => x.id !== id);
+  await store.set('installed', state.installed);
+  renderInstalled();
+  toast('已删除 ' + id);
+});
+
+/* ---------------- 版本清单 ---------------- */
+async function loadManifest(force) {
+  if (state.manifest && !force) return state.manifest;
+  $('#versionList').innerHTML = '<div class="empty"><p><span class="spin"></span>正在拉取版本清单…</p></div>';
+  const url = (state.source === 'mirror') ? MIRROR : OFFICIAL;
+  let txt;
+  try {
+    txt = await call('get', url);
+  } catch (e) {
+    if (state.source === 'mirror') throw e;
+    txt = await call('get', MIRROR);           // 官方不通就走镜像
+  }
+  state.manifest = JSON.parse(txt);
+  return state.manifest;
+}
+
+function renderVersions() {
+  const box = $('#versionList');
+  const m = state.manifest;
+  if (!m) return;
+  const q = state.query.trim().toLowerCase();
+  const all = m.versions.filter(v => {
+    if (state.filter !== 'all' && v.type !== state.filter) return false;
+    return !q || v.id.toLowerCase().includes(q);
+  });
+  if (!all.length) {
+    box.innerHTML = '<div class="empty"><p>没有匹配的版本</p></div>';
+    return;
+  }
+  box.innerHTML = all.slice(0, 60).map(v => {
+    const done = state.installed.some(x => x.id === v.id);
+    const date = (v.releaseTime || '').slice(0, 10);
+    return `<div class="vrow" data-id="${esc(v.id)}">
+      <span class="dot"></span>
+      <span class="col"><span class="nm">${esc(v.id)}</span>
+        <span class="meta">${v.type === 'release' ? '正式版' : v.type === 'snapshot' ? '快照' : esc(v.type)} · ${date}</span>
+        <span class="bar" data-bar="${esc(v.id)}" style="display:none"><i></i></span></span>
+      <button class="btn-sm ${done ? 'done' : ''}" data-install="${esc(v.id)}" ${done ? 'disabled' : ''}>${done ? '已下载' : '下载'}</button>
+    </div>`;
+  }).join('') + (all.length > 60
+    ? `<div class="empty"><p>仅显示前 60 个（共 ${all.length} 个），用搜索框缩小范围</p></div>` : '');
+}
+
+$('#vSearch').addEventListener('input', e => {
+  state.query = e.target.value;
+  clearTimeout(state._t);
+  state._t = setTimeout(renderVersions, 180);
+});
+
+$$('.chip').forEach(c => c.addEventListener('click', () => {
+  $$('.chip').forEach(x => x.classList.remove('on'));
+  c.classList.add('on');
+  state.filter = c.dataset.type;
+  renderVersions();
+}));
+
+/* 下载：先取版本 JSON，再下核心 jar */
+$('#versionList').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-install]');
+  if (!btn || btn.disabled) return;
+  const id = btn.dataset.install;
+  const entry = state.manifest.versions.find(v => v.id === id);
+  if (!entry) return;
+
+  btn.disabled = true;
+  btn.textContent = '准备…';
+  const bar = $(`[data-bar="${CSS.escape(id)}"]`);
+  if (bar) bar.style.display = 'block';
+  const fill = bar ? bar.querySelector('i') : null;
+
+  try {
+    const metaTxt = await call('get', entry.url);
+    const meta = JSON.parse(metaTxt);
+    const client = meta.downloads && meta.downloads.client;
+    if (!client) throw new Error('该版本没有 client 下载项');
+
+    const vdir = state.dir + '/versions/' + id;
+    await call('mkdirs', vdir);
+
+    btn.textContent = '写配置…';
+    await call('download', entry.url, vdir + '/' + id + '.json');
+
+    btn.textContent = '下载中';
+    await call('download', client.url, vdir + '/' + id + '.jar', pct => {
+      if (fill) fill.style.width = (pct < 0 ? 50 : pct) + '%';
+      if (pct >= 0) btn.textContent = pct + '%';
+    });
+
+    const size = Number(await call('size', vdir + '/' + id + '.jar')) || 0;
+    state.installed = state.installed.filter(x => x.id !== id);
+    state.installed.unshift({ id, type: entry.type, dir: vdir, size, time: Date.now() });
+    await store.set('installed', state.installed);
+
+    btn.textContent = '已下载';
+    btn.classList.add('done');
+    btn.disabled = true;
+    if (bar) bar.style.display = 'none';
+    renderInstalled();
+    toast('已下载 ' + id + '（' + (size / 1048576).toFixed(1) + ' MB）');
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = '重试';
+    if (bar) bar.style.display = 'none';
+    toast('下载失败：' + (err.message || err));
+  }
+});
+
+/* ---------------- 资源（Modrinth） ---------------- */
+async function searchMods(q) {
+  const box = $('#modList');
+  if (!q.trim()) {
+    box.innerHTML = '<div class="empty"><p>输入关键词，从 Modrinth 搜索</p></div>';
+    return;
+  }
+  box.innerHTML = '<div class="empty"><p><span class="spin"></span>搜索中…</p></div>';
+  try {
+    const url = MODRINTH + '?query=' + encodeURIComponent(q) + '&limit=20&index=relevance';
+    const txt = await call('get', url);
+    const data = JSON.parse(txt);
+    if (!data.hits || !data.hits.length) {
+      box.innerHTML = '<div class="empty"><p>没有结果</p></div>';
+      return;
+    }
+    box.innerHTML = data.hits.map(h => `
+      <div class="vrow" data-open="https://modrinth.com/project/${esc(h.project_id)}">
+        <span class="dot"></span>
+        <span class="col"><span class="nm">${esc(h.title)}</span>
+          <span class="meta">${esc(h.description || '').slice(0, 60)}</span></span>
+        <span class="loader">${(h.downloads / 1000).toFixed(0)}k</span>
+      </div>`).join('');
+  } catch (err) {
+    box.innerHTML = '<div class="empty"><p>搜索失败：' + esc(err.message || err) + '</p></div>';
+  }
+}
+
+$('#modSearch').addEventListener('input', e => {
+  clearTimeout(state._m);
+  state._m = setTimeout(() => searchMods(e.target.value), 400);
+});
+
+$('#modList').addEventListener('click', e => {
+  const row = e.target.closest('[data-open]');
+  if (!row) return;
+  call('open', row.dataset.open).catch(err => toast('无法打开：' + err.message));
+});
+
+/* ---------------- 设置 ---------------- */
+async function renderSettings() {
+  $('#srcLabel').textContent = state.source === 'mirror' ? 'BMCLAPI 镜像' : '官方 Mojang';
+  $('#setDir').textContent = state.dir || '…';
+  $('#envDir').textContent = state.dir ? state.dir.replace(/^.*\/files\//, '…/') : '…';
+}
+
+$('#classicRow').addEventListener('click', () => {
+  call('openClassic').then(() => toast('正在打开 FCL 原生界面'))
+    .catch(e => toast('打不开：' + e.message));
+});
+
+$('#srcRow').addEventListener('click', async () => {
+  state.source = state.source === 'mirror' ? 'official' : 'mirror';
+  await store.set('source', state.source);
+  renderSettings();
+  loadManifest(true).then(renderVersions).catch(e => toast('切换失败：' + e.message));
+  toast(state.source === 'mirror' ? '已切换到 BMCLAPI 镜像' : '已切换到官方源');
+});
+
+/* ---------------- 启动按钮：诚实交代边界 ---------------- */
+const LAUNCHERS = [
+  { pkg: 'net.kdt.pojavlaunch', name: 'PojavLauncher' },
+  { pkg: 'com.tungsten.fcl', name: 'FCL' }
+];
+
+$('#playBtn').addEventListener('click', async () => {
+  if (!state.installed.length) {
+    toast('先下载一个版本');
+    go('download');
+    return;
+  }
+  for (const l of LAUNCHERS) {
+    try {
+      const r = await call('launchPkg', l.pkg);
+      if (r === '1') { toast('已交给 ' + l.name + ' 启动'); return; }
+    } catch {}
+  }
+  toast('未检测到运行时应用（PojavLauncher / FCL）');
+});
+
+/* ---------------- 外观面板 ---------------- */
+const sheet = $('#sheet'), scrim = $('#scrim');
+const openSheet = () => { sheet.classList.add('on'); scrim.classList.add('on'); };
+const closeSheet = () => { sheet.classList.remove('on'); scrim.classList.remove('on'); };
+$('#openSettings').addEventListener('click', openSheet);
+$('#openSheetRow').addEventListener('click', openSheet);
+scrim.addEventListener('click', closeSheet);
+
+let dragY = 0, dragging = false, startY = 0;
+sheet.addEventListener('touchstart', e => {
+  if (e.target.tagName === 'INPUT') return;
+  startY = e.touches[0].clientY; dragging = true; dragY = 0;
+  sheet.style.transition = 'none';
+}, { passive: true });
+sheet.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  dragY = Math.max(0, e.touches[0].clientY - startY);
+  sheet.style.transform = `translate3d(0, ${dragY}px, 0)`;
+}, { passive: true });
+sheet.addEventListener('touchend', () => {
+  if (!dragging) return;
+  dragging = false;
+  sheet.style.transition = '';
+  sheet.style.transform = '';
+  if (dragY > 110) closeSheet();
+}, { passive: true });
+
+const root = document.documentElement;
+const THEMES = {
+  aurora: ['#7b5cff', '#ff5fa2', '#22d3ee', '#4b8bff'],
+  ocean:  ['#1e5bff', '#00c2ff', '#54f2c8', '#3d7bff'],
+  sunset: ['#ff7a3d', '#ff3d81', '#ffd166', '#ff5f6d'],
+  mint:   ['#00b894', '#4ecdc4', '#a8e063', '#2ed573']
+};
+
+$('#rGlow').addEventListener('input', e => {
+  root.style.setProperty('--glow', e.target.value / 100);
+  $('#vGlow').textContent = e.target.value + '%';
+});
+$('#rSpeed').addEventListener('input', e => {
+  const v = (240 - Number(e.target.value)) / 140;
+  root.style.setProperty('--speed', v.toFixed(2));
+  $('#vSpeed').textContent = (1 / v).toFixed(1) + '×';
+});
+$('#rBlur').addEventListener('input', e => {
+  root.style.setProperty('--blur', e.target.value + 'px');
+  $('#vBlur').textContent = e.target.value + ' px';
+});
+$$('.sw').forEach(sw => sw.addEventListener('click', () => {
+  $$('.sw').forEach(s => s.classList.remove('on'));
+  sw.classList.add('on');
+  const [c1, c2, c3, c4] = THEMES[sw.dataset.theme];
+  root.style.setProperty('--c1', c1);
+  root.style.setProperty('--c2', c2);
+  root.style.setProperty('--c3', c3);
+  root.style.setProperty('--c4', c4);
+}));
+
+/* ---------------- 启动初始化 ---------------- */
+(async function boot() {
+  state.accounts = await store.get('accounts', []);
+  state.current = await store.get('current', null);
+  state.installed = await store.get('installed', []);
+  state.source = await store.get('source', 'official');
+
+  if (!HAS_BRIDGE) {
+    $('#versionList').innerHTML =
+      '<div class="notice">浏览器预览模式：没有原生桥，无法联网与写文件。请安装 APK 使用。</div>';
+    renderAccounts();
+    renderInstalled();
+    renderSettings();
+    setFoot('预览模式');
+    return;
+  }
+
+  try {
+    state.dir = await call('dir');
+  } catch (e) {
+    state.dir = '';
+  }
+
+  renderAccounts();
+  renderInstalled();
+  renderSettings();
+  setFoot('就绪');
+
+  loadManifest().then(() => {
+    renderVersions();
+    setFoot('版本清单已加载');
+  }).catch(e => {
+    $('#versionList').innerHTML = '<div class="empty"><p>清单加载失败：' + esc(e.message) + '</p></div>';
+    setFoot('清单加载失败');
+  });
+})();
+</script>
+
+</body>
+</html>
