@@ -61,7 +61,7 @@ jobs:
           FCL_KEYSTORE_PASSWORD: lumenbuild
           CURSE_API_KEY: ""
           OAUTH_API_KEY: ""
-        run: ./gradlew :FCL:assembleDebug --no-daemon --stacktrace -Dorg.gradle.jvmargs=-Xmx4g
+        run: ./gradlew :FCL:assembleDebug --no-daemon --stacktrace -Darch=arm64 -Dorg.gradle.jvmargs=-Xmx4g
 
       - name: Upload APK
         if: always()
