@@ -696,6 +696,8 @@ input[type=range]::-webkit-slider-thumb:active{ transform:scale(1.15); }
         <div class="kv"><span>数据目录</span><b id="envDir">读取中…</b></div>
       </div>
 
+      <div id="errBox"></div>
+
       <div class="footline rise">
         <span class="pulse"></span>
         <span id="footState">就绪</span>
@@ -1413,7 +1415,13 @@ $('#playBtn').addEventListener('click', async () => {
     await call('launch', ver);
     toast('正在启动 ' + ver);
   } catch (e) {
-    toast('启动失败：' + (e.message || e));
+    const msg = String(e.message || e);
+    toast('启动失败');
+    const box = $('#errBox');
+    if (box) {
+      box.innerHTML = '<div class="notice" style="font-size:11px;word-break:break-all">' +
+        '<b>启动失败</b><br>' + esc(msg) + '</div>';
+    }
   }
 });
 
