@@ -2,8 +2,12 @@ package com.tungsten.fcl.lumen;
 
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
+import android.os.Environment;
+import android.provider.Settings;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.JavascriptInterface;
@@ -139,6 +143,67 @@ public class Bridge {
                     ctx.startActivity(li);
                     ok(id, "1");
                 }
+                break;
+            }
+
+            case "ls": {
+                File d = new File(a);
+                JSONArray arr = new JSONArray();
+                File[] fs = d.listFiles();
+                if (fs != null) {
+                    java.util.Arrays.sort(fs, new java.util.Comparator<File>() {
+                        @Override
+                        public int compare(File x, File y) {
+                            if (x.isDirectory() != y.isDirectory()) return x.isDirectory() ? -1 : 1;
+                            return x.getName().compareToIgnoreCase(y.getName());
+                        }
+                    });
+                    for (File f : fs) {
+                        JSONObject o = new JSONObject();
+                        o.put("name", f.getName());
+                        o.put("dir", f.isDirectory());
+                        o.put("size", f.isDirectory() ? 0 : f.length());
+                        arr.put(o);
+                    }
+                }
+                ok(id, arr.toString());
+                break;
+            }
+
+            case "move": {
+                ok(id, moveTo(new File(a), new File(b)) ? "1" : "0");
+                break;
+            }
+
+            case "rm": {
+                ok(id, deleteTree(new File(a)) ? "1" : "0");
+                break;
+            }
+
+            case "storage": {
+                boolean granted;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    granted = Environment.isExternalStorageManager();
+                } else {
+                    granted = ctx.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            == android.content.pm.PackageManager.PERMISSION_GRANTED;
+                }
+                ok(id, granted ? "1" : "0");
+                break;
+            }
+
+            case "storageSettings": {
+                Intent si;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    si = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:" + ctx.getPackageName()));
+                } else {
+                    si = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + ctx.getPackageName()));
+                }
+                si.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(si);
+                ok(id, "1");
                 break;
             }
 
@@ -303,6 +368,37 @@ public class Bridge {
 
     private SharedPreferences prefs() {
         return ctx.getSharedPreferences("lumen", Context.MODE_PRIVATE);
+    }
+
+    /** 移动文件或目录；跨分区时退化为「复制 + 删除」。 */
+    private static boolean moveTo(File src, File dst) throws Exception {
+        if (!src.exists()) return false;
+        File parent = dst.getParentFile();
+        if (parent != null && !parent.exists()) parent.mkdirs();
+        if (dst.exists()) deleteTree(dst);
+        if (src.renameTo(dst)) return true;
+
+        if (src.isDirectory()) {
+            if (!dst.mkdirs() && !dst.exists()) return false;
+            File[] kids = src.listFiles();
+            if (kids != null) {
+                for (File k : kids) {
+                    if (!moveTo(k, new File(dst, k.getName()))) return false;
+                }
+            }
+        } else {
+            java.io.InputStream in = new java.io.FileInputStream(src);
+            java.io.OutputStream out = new java.io.FileOutputStream(dst);
+            try {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            } finally {
+                in.close();
+                out.close();
+            }
+        }
+        return deleteTree(src);
     }
 
     private static boolean deleteTree(File f) {
