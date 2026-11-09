@@ -1,6 +1,8 @@
 package com.tungsten.fcl.lumen;
 
 import android.content.Context;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
@@ -131,5 +133,54 @@ public class DragMenuLayout extends ConstraintLayout {
                 .setDuration(ms)
                 .setInterpolator(new android.view.animation.OvershootInterpolator(2.2f))
                 .start();
+    }
+
+    // ---------------- 背景色相缓慢流转 ----------------
+    private android.animation.ValueAnimator hueAnim;
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        startHueShift();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        stopHueShift();
+        super.onDetachedFromWindow();
+    }
+
+    private void startHueShift() {
+        if (hueAnim != null) {
+            return;
+        }
+        final View root = getRootView();
+        final View bg = root.findViewById(com.tungsten.fcl.R.id.background);
+        if (!(bg instanceof android.widget.ImageView)) {
+            return;
+        }
+        final android.widget.ImageView iv = (android.widget.ImageView) bg;
+        hueAnim = android.animation.ValueAnimator.ofFloat(0f, 360f);
+        hueAnim.setDuration(26000);
+        hueAnim.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        hueAnim.setInterpolator(new android.view.animation.LinearInterpolator());
+        hueAnim.addUpdateListener(new android.animation.ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(android.animation.ValueAnimator a) {
+                float h = (Float) a.getAnimatedValue();
+                // 只做小幅色相偏移，避免颜色跳到刺眼的区间
+                android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
+                cm.setRotate(0, h * 0.28f);
+                iv.setColorFilter(new android.graphics.ColorMatrixColorFilter(cm));
+            }
+        });
+        hueAnim.start();
+    }
+
+    private void stopHueShift() {
+        if (hueAnim != null) {
+            hueAnim.cancel();
+            hueAnim = null;
+        }
     }
 }
