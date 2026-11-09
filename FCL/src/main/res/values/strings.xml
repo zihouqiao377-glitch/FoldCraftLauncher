@@ -2,14 +2,14 @@
     <string name="app_name" translatable="false">男娘启动器</string>
     <string name="app_name_import">Install Modpack</string>
 
-    <string name="splash_agreement">FCL requires storage permission to manage and read game files. FCL is fully open-source on GitHub, so please rest assured about your data security. The permission is solely for the game to operate properly and poses no security risks.</string>
+    <string name="splash_agreement">男娘启动器需要存储权限 to manage and read game files. FCL is fully open-source on GitHub, so please rest assured about your data security. The permission is solely for the game to operate properly and poses no security risks.</string>
     <string name="splash_permission_msg">No storage permission, please grant Fold Craft Launcher the permission.</string>
     <string name="splash_permission_grant">Grant</string>
     <string name="splash_permission_title">Permission to store needed</string>
     <string name="splash_permission_close">Close the app</string>
     <string name="splash_permission_settings">Settings</string>
     <string name="splash_permission_settings_msg">You have chosen "Never Allow" Please manually grant storage permissions in settings.</string>
-    <string name="notification_permission">FCL requires permission to post notifications to prevent issues with normal game installation or startup.</string>
+    <string name="notification_permission">男娘启动器需要通知权限 to prevent issues with normal game installation or startup.</string>
 
     <string name="splash_title">Welcome to Fold Craft Launcher</string>
     <string name="splash_eula_error">Cannot get EULA, please check the network.</string>
@@ -55,10 +55,10 @@
     <string name="plugin_miolibpatcher_asm_desc">Removes the ASM 5.0.4 API check to support older mods like AE1 (affects all ASM 5.0.4 mods, use with caution)</string>
     <string name="plugin_env_config">Configure</string>
     <string name="about_launcher" translatable="false">Fold Craft Launcher</string>
-    <string name="about_developer" translatable="false">FCL-Team</string>
+    <string name="about_developer" translatable="false">男娘启动器 项目组</string>
     <string name="about_sponsor">Sponsor</string>
     <string name="about_source">Open Source</string>
-    <string name="about_desc">Fold Craft Launcher is an Android Minecraft Launcher, allows user to launch Minecraft: Java Edition on Android device.\n\nFold Craft Launcher is developed by FCL-Team.\n\nFold Craft Launcher\'s most features are modified based on HMCLCore.\n\nThe app borrows and quotes some codes of PojavLauncher and Boat, so if you are going to distribute this app, please follow GPL-v3 License.</string>
+    <string name="about_desc">男娘启动器 是一个 Android 上的 Minecraft Java 版启动器, allows user to launch Minecraft: Java Edition on Android device.\n\nFold Craft Launcher is developed by 男娘启动器 项目组.\n\nFold Craft Launcher\'s most features are modified based on HMCLCore.\n\nThe app borrows and quotes some codes of PojavLauncher and Boat, so if you are going to distribute this app, please follow GPL-v3 License.</string>
 
     <string name="account_add_server">Add Authentication Server</string>
     <string name="account_add_server_url">Server URL</string>
@@ -1321,7 +1321,7 @@
     <string name="terracotta_menu">Multiplayer Menu</string>
     <string name="terracotta_menu_open">Open</string>
     <string name="terracotta_notification_title">Terracotta is running</string>
-    <string name="notification_title">FCL Process service is running!</string>
+    <string name="notification_title">男娘启动器 进程服务运行中</string>
     <string name="terracotta_notification_desc">Identity: %s, State: %s</string>
     <string name="terracotta_status_waiting_host_title">I want to host a session</string>
     <string name="terracotta_status_waiting_host_desc">Create a room and generate an invite code to play with friends</string>
