@@ -301,7 +301,7 @@ public final class ModpackHelper {
     }
 
     public static boolean isExternalGameNameConflicts(String name) {
-        return Files.exists(Paths.get(Environment.getExternalStorageDirectory().getAbsolutePath() + "/FCL").resolve(name));
+        return Files.exists(Paths.get(Environment.getExternalStorageDirectory().getAbsolutePath() + "/Lumen").resolve(name));
     }
 
     public static Task<?> getInstallManuallyCreatedModpackTask(Profile profile, File zipFile, String name, Charset charset) {
