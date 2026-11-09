@@ -14,6 +14,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
 
+import com.tungsten.fcl.setting.ConfigHolder;
 import com.tungsten.fcl.setting.Profile;
 import com.tungsten.fcl.setting.Profiles;
 import com.tungsten.fclcore.game.Version;
@@ -209,6 +210,7 @@ public class Bridge {
 
             case "versions": {
                 // 直接读 FCL 的版本库，不读我们自己的下载目录
+                ensureInit();
                 Profile p = Profiles.INSTANCE.getSelectedProfile();
                 JSONArray arr = new JSONArray();
                 if (p != null) {
@@ -223,9 +225,14 @@ public class Bridge {
             case "launch": {
                 // 调 FCL 的启动器，直接进游戏，不打开它的任何界面
                 final String ver = a;
+                ensureInit();
                 final Profile pf = Profiles.INSTANCE.getSelectedProfile();
                 if (pf == null || ver == null || ver.isEmpty()) {
                     fail(id, "没有选中版本");
+                    break;
+                }
+                if (!pf.getRepository().hasVersion(ver)) {
+                    fail(id, "版本库中没有 " + ver + "，请先安装完整版本");
                     break;
                 }
                 ui.post(new Runnable() {
@@ -364,6 +371,16 @@ public class Bridge {
             dir.mkdirs();
         }
         return dir;
+    }
+
+    /**
+     * FCL 的全局配置（账户、版本库等）原本在它的 SplashActivity 里初始化。
+     * 我们的外壳跳过了那个界面，所以第一次用到之前要自己补上，否则一堆 NPE。
+     */
+    private static synchronized void ensureInit() throws Exception {
+        if (!ConfigHolder.isInit()) {
+            ConfigHolder.init();
+        }
     }
 
     private SharedPreferences prefs() {
