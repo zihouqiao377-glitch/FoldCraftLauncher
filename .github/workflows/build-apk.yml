@@ -63,6 +63,20 @@ jobs:
           OAUTH_API_KEY: ""
         run: ./gradlew :FCL:assembleDebug --no-daemon --stacktrace -Darch=arm64 -Dorg.gradle.jvmargs=-Xmx4g
 
+      # 同时发布到 Releases：artifact 有账号级下载额度，Releases 走另一条通道
+      - name: Publish to Releases
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: beta-${{ github.run_number }}
+          name: 男娘启动器 beta-${{ github.run_number }}
+          body: |
+            自动构建 · 提交 ${{ github.sha }}
+          files: FCL/build/outputs/apk/debug/*.apk
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
