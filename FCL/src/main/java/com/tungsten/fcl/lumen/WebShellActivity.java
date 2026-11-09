@@ -77,7 +77,7 @@ public class WebShellActivity extends Activity {
 
         setContentView(web);
 
-        web.addJavascriptInterface(new UiBridge(this, web), "LumenBridge");
+        web.addJavascriptInterface(new Bridge(this, web), "LumenBridge");
 
         web.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
