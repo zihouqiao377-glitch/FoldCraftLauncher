@@ -753,7 +753,6 @@ input[type=range]::-webkit-slider-thumb:active{ transform:scale(1.15); }
     <!-- ================= 设置 ================= -->
     <section class="page" data-page="settings">
       <div class="glass vlist">
-        <div class="kv" id="classicRow"><span>FCL 原生界面</span><b>进入 ›</b></div>
         <div class="kv" id="srcRow"><span>下载源</span><b id="srcLabel">官方 Mojang</b></div>
         <div class="kv"><span>数据目录</span><b id="setDir">…</b></div>
         <div class="kv"><span>已下载版本</span><b id="setCount">0</b></div>
@@ -1095,7 +1094,7 @@ function renderInstalled() {
       <div class="vrow ${i === 0 ? 'on' : ''}" data-ver="${esc(v.id)}">
         <span class="dot"></span>
         <span class="col"><span class="nm">${esc(v.id)}</span>
-          <span class="meta">${v.type === 'release' ? '正式版' : v.type === 'snapshot' ? '快照' : esc(v.type)} · ${(v.size / 1048576).toFixed(1)} MB</span></span>
+          <span class="meta">${v.type === 'release' ? '正式版' : v.type === 'snapshot' ? '快照' : esc(v.type)}${v.size ? ' · ' + (v.size / 1048576).toFixed(1) + ' MB' : ''}</span></span>
         <button class="btn-sm warn" data-del="${esc(v.id)}">删除</button>
       </div>`).join('');
   }
@@ -1274,11 +1273,6 @@ async function renderSettings() {
   $('#envDir').textContent = state.dir ? state.dir.replace(/^.*\/files\//, '…/') : '…';
 }
 
-$('#classicRow').addEventListener('click', () => {
-  call('openClassic').then(() => toast('正在打开 FCL 原生界面'))
-    .catch(e => toast('打不开：' + e.message));
-});
-
 $('#srcRow').addEventListener('click', async () => {
   state.source = state.source === 'mirror' ? 'official' : 'mirror';
   await store.set('source', state.source);
@@ -1288,24 +1282,19 @@ $('#srcRow').addEventListener('click', async () => {
 });
 
 /* ---------------- 启动按钮：诚实交代边界 ---------------- */
-const LAUNCHERS = [
-  { pkg: 'net.kdt.pojavlaunch', name: 'PojavLauncher' },
-  { pkg: 'com.tungsten.fcl', name: 'FCL' }
-];
-
 $('#playBtn').addEventListener('click', async () => {
   if (!state.installed.length) {
-    toast('先下载一个版本');
+    toast('还没有可用版本');
     go('download');
     return;
   }
-  for (const l of LAUNCHERS) {
-    try {
-      const r = await call('launchPkg', l.pkg);
-      if (r === '1') { toast('已交给 ' + l.name + ' 启动'); return; }
-    } catch {}
+  const ver = state.installed[0].id;
+  try {
+    await call('launch', ver);
+    toast('正在启动 ' + ver);
+  } catch (e) {
+    toast('启动失败：' + (e.message || e));
   }
-  toast('未检测到运行时应用（PojavLauncher / FCL）');
 });
 
 /* ---------------- 外观面板 ---------------- */
@@ -1370,7 +1359,14 @@ $$('.sw').forEach(sw => sw.addEventListener('click', () => {
 (async function boot() {
   state.accounts = await store.get('accounts', []);
   state.current = await store.get('current', null);
-  state.installed = await store.get('installed', []);
+  // 版本库以 FCL 的为准
+  try {
+    const raw = await call('versions');
+    const ids = JSON.parse(raw || '[]');
+    state.installed = ids.map(id => ({ id, type: 'release', size: 0 }));
+  } catch (e) {
+    state.installed = [];
+  }
   state.source = await store.get('source', 'official');
 
   if (!HAS_BRIDGE) {
