@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<set xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- 进入：淡入 + 极轻微上浮缩放，替代原来的整屏横滑 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/fast_out_slow_in"
+    android:shareInterpolator="true">
     <alpha
-        android:duration="500"
+        android:duration="320"
         android:fromAlpha="0"
         android:toAlpha="1" />
     <translate
-        android:duration="500"
-        android:fromXDelta="100%"
-        android:fromYDelta="0"
-        android:toXDelta="0"
-        android:toYDelta="0" />
+        android:duration="320"
+        android:fromXDelta="7%"
+        android:toXDelta="0" />
+    <scale
+        android:duration="320"
+        android:fromXScale="0.97"
+        android:fromYScale="0.97"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:toXScale="1"
+        android:toYScale="1" />
 </set>
