@@ -14,6 +14,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
 
+import com.tungsten.fclauncher.utils.FCLPath;
 import com.tungsten.fcl.setting.ConfigHolder;
 import com.tungsten.fcl.setting.Profile;
 import com.tungsten.fcl.setting.Profiles;
@@ -377,10 +378,14 @@ public class Bridge {
      * FCL 的全局配置（账户、版本库等）原本在它的 SplashActivity 里初始化。
      * 我们的外壳跳过了那个界面，所以第一次用到之前要自己补上，否则一堆 NPE。
      */
-    private static synchronized void ensureInit() throws Exception {
-        if (!ConfigHolder.isInit()) {
-            ConfigHolder.init();
+    private synchronized void ensureInit() throws Exception {
+        if (ConfigHolder.isInit()) {
+            return;
         }
+        // 顺序不能反：FCLPath 先把各目录字段填上（Accounts 的静态初始化会用到），
+        // 再 init 配置。SplashActivity 里也是这个顺序，我们跳过了它就得自己补。
+        FCLPath.loadPaths(ctx);
+        ConfigHolder.init();
     }
 
     private SharedPreferences prefs() {
