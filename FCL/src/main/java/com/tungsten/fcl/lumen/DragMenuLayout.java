@@ -5,7 +5,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.widget.LinearLayout;
+import androidx.constraintlayout.widget.ConstraintLayout;
 
 /**
  * 侧边栏容器：把「点选」扩展成「拖动即选」。
@@ -16,7 +16,7 @@ import android.widget.LinearLayout;
  * 手指滑过某一项时，该项做一次轻微的横向拉伸（scaleX>1、scaleY<1），
  * 松手后回弹 —— 这就是「被手指拽出去再弹回来」的近似手感。
  */
-public class DragMenuLayout extends LinearLayout {
+public class DragMenuLayout extends ConstraintLayout {
 
     private final int slop;
     private int activeIndex = -1;
