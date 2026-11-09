@@ -45,6 +45,8 @@ jobs:
       # 这里现生成一个自签调试库覆盖仓库自带的 key-store.jks，别名必须叫 FCL-Key。
       - name: Provide signing keystore
         run: |
+          # 仓库自带的 key-store.jks 密码未知，keytool 会尝试打开它而报密码错误，先删掉
+          rm -f key-store.jks
           keytool -genkeypair -v \
             -keystore key-store.jks \
             -storepass lumenbuild -keypass lumenbuild \
