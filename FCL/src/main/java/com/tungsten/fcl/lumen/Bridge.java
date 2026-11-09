@@ -211,7 +211,12 @@ public class Bridge {
 
             case "versions": {
                 // 直接读 FCL 的版本库，不读我们自己的下载目录
-                ensureInit();
+                try {
+                    ensureInit();
+                } catch (Throwable e) {
+                    fail(id, "初始化失败 → " + where(e));
+                    break;
+                }
                 Profile p = Profiles.INSTANCE.getSelectedProfile();
                 JSONArray arr = new JSONArray();
                 if (p != null) {
@@ -226,14 +231,32 @@ public class Bridge {
             case "launch": {
                 // 调 FCL 的启动器，直接进游戏，不打开它的任何界面
                 final String ver = a;
-                ensureInit();
+                try {
+                    ensureInit();
+                } catch (Throwable e) {
+                    fail(id, "初始化失败 → " + where(e));
+                    break;
+                }
                 final Profile pf = Profiles.INSTANCE.getSelectedProfile();
-                if (pf == null || ver == null || ver.isEmpty()) {
+                if (pf == null) {
+                    fail(id, "没有可用的版本目录（配置里没有 profile）");
+                    break;
+                }
+                if (ver == null || ver.isEmpty()) {
                     fail(id, "没有选中版本");
                     break;
                 }
-                if (!pf.getRepository().hasVersion(ver)) {
-                    fail(id, "版本库中没有 " + ver + "，请先安装完整版本");
+                try {
+                    if (pf.getRepository() == null) {
+                        fail(id, "版本库未加载");
+                        break;
+                    }
+                    if (!pf.getRepository().hasVersion(ver)) {
+                        fail(id, "版本库中没有 " + ver + "，请先安装完整版本");
+                        break;
+                    }
+                } catch (Throwable e) {
+                    fail(id, "读取版本库失败 → " + where(e));
                     break;
                 }
                 ui.post(new Runnable() {
@@ -386,6 +409,24 @@ public class Bridge {
         // 再 init 配置。SplashActivity 里也是这个顺序，我们跳过了它就得自己补。
         FCLPath.loadPaths(ctx);
         ConfigHolder.init();
+    }
+
+    /** 取异常栈顶几帧，方便在没有 logcat 的情况下定位。 */
+    private static String where(Throwable e) {
+        StringBuilder sb = new StringBuilder(e.getClass().getSimpleName());
+        if (e.getMessage() != null) sb.append(": ").append(e.getMessage());
+        StackTraceElement[] st = e.getStackTrace();
+        int n = 0;
+        for (StackTraceElement el : st) {
+            String c = el.getClassName();
+            if (c.startsWith("java.") || c.startsWith("android.") || c.startsWith("com.tungsten.fcl.lumen.")) {
+                continue;
+            }
+            sb.append(" | ").append(c).append(".").append(el.getMethodName())
+              .append(":").append(el.getLineNumber());
+            if (++n >= 3) break;
+        }
+        return sb.toString();
     }
 
     private SharedPreferences prefs() {
