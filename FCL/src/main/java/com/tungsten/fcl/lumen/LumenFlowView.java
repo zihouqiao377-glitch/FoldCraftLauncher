@@ -71,7 +71,7 @@ public class LumenFlowView extends View {
             return;
         }
         anim = ValueAnimator.ofFloat(0f, 1f);
-        anim.setDuration(24000);
+        anim.setDuration(12000);
         anim.setRepeatCount(ValueAnimator.INFINITE);
         anim.setInterpolator(new android.view.animation.LinearInterpolator());
         anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
@@ -105,23 +105,28 @@ public class LumenFlowView extends View {
                 "uniform float3 uA;\n" +
                 "uniform float3 uB;\n" +
                 "uniform float3 uC;\n" +
-                "float hash(float2 p){ return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }\n" +
+                "float hash(float2 p){ return fract(sin(dot(p, float2(127.1,311.7)))*43758.5453); }\n" +
                 "float noise(float2 p){\n" +
-                "  float2 i = floor(p); float2 f = fract(p);\n" +
-                "  float a = hash(i), b = hash(i + float2(1,0));\n" +
-                "  float c = hash(i + float2(0,1)), d = hash(i + float2(1,1));\n" +
+                "  float2 i = floor(p), f = fract(p);\n" +
                 "  float2 u = f*f*(3.0-2.0*f);\n" +
-                "  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);\n" +
+                "  return mix(mix(hash(i), hash(i+float2(1,0)), u.x),\n" +
+                "             mix(hash(i+float2(0,1)), hash(i+float2(1,1)), u.x), u.y);\n" +
+                "}\n" +
+                "float fbm(float2 p){\n" +
+                "  float v = 0.0, a = 0.5;\n" +
+                "  for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; }\n" +
+                "  return v;\n" +
                 "}\n" +
                 "half4 main(float2 fc){\n" +
                 "  float2 uv = fc / uSize;\n" +
-                "  float2 p = uv * 3.2;\n" +
-                "  float t = uTime * 0.10;\n" +
-                "  float n1 = noise(p + float2(t, -t*0.7));\n" +
-                "  float n2 = noise(p * 1.9 + float2(-t*0.9, t*0.6));\n" +
-                "  float m = clamp(n1*0.62 + n2*0.38, 0.0, 1.0);\n" +
-                "  float3 col = mix(uA, uB, smoothstep(0.10, 0.90, m));\n" +
-                "  col = mix(col, uC, smoothstep(0.45, 1.0, uv.y) * 0.5);\n" +
+                "  float2 p = uv * float2(3.0, 5.0);\n" +
+                "  float t = uTime * 0.22;\n" +
+                // 域扭曲：先用两层噪声算出偏移向量，再拿它去采样主体噪声
+                "  float2 q = float2(fbm(p + float2(0.0, t)), fbm(p + float2(3.7, -t*0.8)));\n" +
+                "  float f = fbm(p + q * 1.8 + float2(t*0.3, -t*0.2));\n" +
+                "  float m = smoothstep(0.15, 0.95, f);\n" +
+                "  float3 col = mix(uA, uB, m);\n" +
+                "  col = mix(col, uC, smoothstep(0.40, 1.0, uv.y) * 0.55);\n" +
                 "  return half4(col, 1.0);\n" +
                 "}\n";
 
